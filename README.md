@@ -39,7 +39,7 @@ outcrop_zmax = np.array([200, 300, 400, 500, 500]) # Elevation (Just used when S
 outcrop_zmin = np.array([0, 200, 300, 400, 500]) # Elevation (Just used when SLOPE are set to True)
 base_thicknesses = np.array([300, 150, 200, 150, 200]) # Layer thickness in meters
 outcrop_cells = np.array([200, 150, 100, 50, 0]) 
-transition = 50 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
+transition = 50 # Number of transitions cells
 
 # Create idomain and geometry arrays
 idomain = modgeom6.compute_idomain(nlay, nrow, ncol, outcrop_cells)

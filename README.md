@@ -32,19 +32,27 @@ approaches for the estimation of sustainable yields.
 ```python
 from mlibs import modgeom6
 
-# Define grid and geometry parameters
-nlay, nrow, ncol = 5, 1, 600
-outcrop_cells = [200, 150, 100, 50, 0]
-base_thicknesses = [300, 150, 200, 150, 200]
+# Define synthetic geometry generation parameters
+epsilon = 0 # Minimum allowed cell thickness in meters
+outcrop_z = np.array([100, 150, 200, 250, 350]) # Elevation (Just used when SLOPE is set to False)
+outcrop_zmax = np.array([200, 300, 400, 500, 500]) # Elevation (Just used when SLOPE are set to True)
+outcrop_zmin = np.array([0, 200, 300, 400, 500]) # Elevation (Just used when SLOPE are set to True)
+base_thicknesses = np.array([300, 150, 200, 150, 200]) # Layer thickness in meters
+outcrop_cells = np.array([200, 150, 100, 50, 0]) 
+transition = 50 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
 
 # Create idomain and geometry arrays
-idomain = modgeom6.create_idomain(nlay, nrow, ncol, outcrop_cells, direction="right")
-top = modgeom6.compute_top_all(idomain, outcrop_z=[100, 150, 200, 250, 350], transition=True, slope=True,
-                               transition_cells=50, transition_type="contain",
-                               outcrop_zmin=[0, 200, 300, 400, 500], outcrop_zmax=[200, 300, 400, 500, 500])
-thickness = modgeom6.compute_thickness_all(idomain, base_thicknesses, transition=True, transition_cells=50)
-bottom = modgeom6.compute_bottom(top, thickness)
+idomain = modgeom6.compute_idomain(nlay, nrow, ncol, outcrop_cells)
+ztop = modgeom6.compute_top(idomain, outcrop_z, transition=True, slope=True,
+                            transition_cells=transition, transition_type="contain", 
+                            outcrop_zmin=outcrop_zmin, outcrop_zmax=outcrop_zmax)
+thickness_array = modgeom6.compute_thickness(idomain, base_thicknesses, 
+                                             transition=True, transition_type="contain", 
+                                             transition_cells=transition)
+zbot = modgeom6.compute_bottom(ztop, thickness_array)
 ```
+![Example geometry output](example_output_geometry.jpg)
+
 
 ## Contact
 

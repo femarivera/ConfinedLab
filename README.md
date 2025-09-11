@@ -58,6 +58,7 @@ zbot = modgeom6.compute_bottom(ztop, thickness_array)
 
 For questions, suggestions, or contributions, please contact:  
 Carlos Felipe Marin Rivera  
-Bordeaux INP, Lab EPOC, Université de Bordeaux  
+Bordeaux INP, Lab EPOC, Université de Bordeaux
+cmarinriver@bordeaux-inp.fr  
 
 ---

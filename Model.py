@@ -11,7 +11,6 @@ import sys
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-import rasterio
 
 import flopy
 from flopy.utils.geometry import Point, LineString, MultiPoint
@@ -59,23 +58,26 @@ R = np.array([8e-4, 0, 8e-4, 0, 8e-4]) #Arid/Semi-arid conditions rates in m/d
 sy = np.array([0.25, 0.25, 0.25, 0.25, 0.25]) # Specific yield for Unconfined cells (adimentional)
 ss = np.array([1e-5, 1e-5, 1e-5, 1e-5, 1e-5]) # type: ignore # Specific storage for Confined cells (m-1)
 q = -15 # Pumping rate in m3/d
-col_well = 400
+well_loc = (2, 0, 400) # Well location (layer, row, column)
 
+# Set model grid parameters
 nlay = 5 # Number of layers
-length = 600000 # Total lenght of model in meters
 ncol = 600 # Number of columns
-dcol = length/ncol # Column size in meters
 nrow = 1 # Number of rows (single row for 2D cross section)
-width = 1 # Width of modle area in meters
+length = 600000 # Total lenght of model in meters
+width = 1 # Total width of model in meters
+dcol = length/ncol # Column size in meters
 drow = width/nrow # Row size in meters
 
+# Define synthetic geometry generation parameters
 epsilon = 0 # Minimum allowed cell thickness in meters
 outcrop_z = np.array([100, 150, 200, 250, 350]) # Elevation (Just used when SLOPE is set to False)
-outcrop_z_max = np.array([200, 300, 400, 500, 500]) # Elevation (Just used when SLOPE are set to True)
-outcrop_z_min = np.array([0, 200, 300, 400, 500]) # Elevation (Just used when SLOPE are set to True)
+outcrop_zmax = np.array([200, 300, 400, 500, 500]) # Elevation (Just used when SLOPE are set to True)
+outcrop_zmin = np.array([0, 200, 300, 400, 500]) # Elevation (Just used when SLOPE are set to True)
 base_thicknesses = np.array([300, 150, 200, 150, 200]) # Layer thickness in meters
-outcrop_length = np.array([200000, 150000, 100000, 50000, 0]) # X coordinate where the unit stops outcropping (from the end of the section to the left)
-transition = 50000 # Transitions lenght (Just used when SMOOTH_TOPO is set to True)
+outcrop_cells = np.array([200, 150, 100, 50, 0]) 
+transition = 50 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
+
 # ------------------------------------------------------------------------------- #
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
@@ -83,9 +85,6 @@ transition = 50000 # Transitions lenght (Just used when SMOOTH_TOPO is set to Tr
 ACTIVATE_GHB1 = True #Activates main lateral outflow of the system to the right
 ACTIVATE_GHB2 = False #Activates a lateral inflow to the left
 boundary_keywords = ["GHB", "WEL", "DRN", "RIV"] #List of boundaries used in the model for plotting
-
-SMOOTH_TOPO = True # Smooths changes in elevations through a linear transition
-SLOPE = True # Introduces sloping in the topography through min and max outcrop elevations for each layer
 
 STEADY = True # Runs the steady state model
 plot_steady = True # Plots steady state outputs
@@ -96,13 +95,25 @@ plot_transient = True
 animate = False
 
 # ------------------------------------------------------------------------------- #
-# --------------------------- GEOMETRY PROCESSING ------------------------------- #
+# --------------------------- GEOMETRY GENERATION ------------------------------- #
 # ------------------------------------------------------------------------------- #
 
 # Create idomain, irch and recharge arrays
-idomain = modgeom6.create_idomain2(nlay, nrow, ncol, length, outcrop_length)
-irch = modgeom6.calculate_irch(idomain)
+idomain = modgeom6.compute_idomain(nlay, nrow, ncol, outcrop_cells)
+ztop = modgeom6.compute_top(idomain, outcrop_z, transition=True, slope=True,
+                            transition_cells=transition, transition_type="contain", 
+                            outcrop_zmin=outcrop_zmin, outcrop_zmax=outcrop_zmax)
+thickness_array = modgeom6.compute_thickness(idomain, base_thicknesses, 
+                                             transition=True, transition_type="contain", 
+                                             transition_cells=transition)
+zbot = modgeom6.compute_bottom(ztop, thickness_array)
+idomain = modgeom6.idomain_from_thickness(thickness_array, epsilon)
+ztop_array = modgeom6.compute_ztop_array(ztop, zbot)
+irch = modgeom6.compute_irch(idomain)
 R_array = modgeom6.compute_recharge(irch, R)
+zone_array = np.zeros((nlay, nrow, ncol), dtype=int) # Create zones array for zone budget
+for i in range(nlay):
+    zone_array[i, :, :] = i + 1
 
 # Plot the arrays to check consistency
 #plt.imshow(idomain[0,:,:], cmap='viridis', interpolation='nearest', aspect=300)
@@ -114,31 +125,6 @@ R_array = modgeom6.compute_recharge(irch, R)
 #plt.title('Recharge')
 #plt.show()
 
-#Create synthetic topography and thickness arrays
-if SMOOTH_TOPO :
-    if SLOPE:
-        ztop = modgeom6.compute_top_slope2b(idomain, length, outcrop_z_min, outcrop_z_max, transition)
-    else : 
-        ztop = modgeom6.compute_top_with_transition2b(idomain,length,outcrop_z, transition)
-    thickness_array = modgeom6.compute_thickness_with_transition_b(idomain, length, base_thicknesses, transition)
-else:
-    ztop = modgeom6.compute_top(idomain, outcrop_z)
-    thickness_array = modgeom6.compute_thickness(idomain, base_thicknesses)  
-
-#Compute bottom ellevations for each layer    
-zbot = modgeom6.compute_bottom(ztop, thickness_array)
-
-#Update idomain to deactivate thin cells
-idomain = modgeom6.idomain_from_thickness(thickness_array, epsilon)
-
-#Create starting heads array for steady state simulation (top elevation)
-ztop_array = modgeom6.create_ztop_array(ztop, zbot)
-
-# Create zones array for zone budget
-zone_array = np.zeros((nlay, nrow, ncol), dtype=int)
-for i in range(nlay):
-    zone_array[i, :, :] = i + 1
-    
 # ------------------------------------------------------------------------------- #
 # --------------------------- BUILDING SIMULATION ------------------------------- #
 # ------------------------------------------------------------------------------- #
@@ -243,9 +229,9 @@ rch = flopy.mf6.ModflowGwfrcha(gwf,
                                recharge = R_array,
                                filename = f"{model_name}.rcha")
 
-# Well package (No pumping in steady state = Natural conditions)
+# Well package
 wel_spd = {}
-wel_spd[0] = [(2, 0, col_well, 0, "WELL1")]
+wel_spd[0] = [(well_loc[0], well_loc[1], well_loc[2], 0, "WELL1")]
 wel = flopy.mf6.ModflowGwfwel(gwf, 
                               pname = "wel",
                               save_flows = True,
@@ -442,7 +428,7 @@ if TRANSIENT:
 
     # Update transient well package
     wel_spd = {}
-    wel_spd[0] = [(2, 0, col_well, "wells1")]
+    wel_spd[0] = [(well_loc[0], well_loc[1], well_loc[2],"wells1")]
     wel = flopy.mf6.ModflowGwfwel(gwf, 
                               pname = "wel",
                               save_flows = True,
@@ -462,11 +448,11 @@ if TRANSIENT:
 
     # Head obervations
     obs_recarray = {
-        "head_obs_t.csv": [("Head at pumping well - Unconfined Aquifer", "HEAD", (0, 0, col_well)),
-                        ("Head at pumping well - Aquitard", "HEAD", (1, 0, col_well)),
-                        ("Head at pumping well - Confined Aquifer", "HEAD", (2, 0, col_well)),
-                        ("Head at pumping well - Aquitard", "HEAD", (3, 0, col_well)),
-                        ("Head at pumping well - Confined Aquifer", "HEAD", (4, 0, col_well))]}
+        "head_obs_t.csv": [("Head at pumping well - Unconfined Aquifer", "HEAD", (0, 0, well_loc[2])),
+                        ("Head at pumping well - Aquitard", "HEAD", (1, 0, well_loc[2])),
+                        ("Head at pumping well - Confined Aquifer", "HEAD", (2, 0, well_loc[2])),
+                        ("Head at pumping well - Aquitard", "HEAD", (3, 0, well_loc[2])),
+                        ("Head at pumping well - Confined Aquifer", "HEAD", (4, 0, well_loc[2]))]}
 
     obs_package = flopy.mf6.ModflowUtlobs(
         gwf,

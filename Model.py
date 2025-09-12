@@ -57,7 +57,7 @@ k = np.array([250, 1e-3, 25, 1e-3, 25]) #Horizontal hydraulic conductivity in m/
 R = np.array([8e-4, 0, 8e-4, 0, 8e-4]) #Arid/Semi-arid conditions rates in m/d
 sy = np.array([0.25, 0.25, 0.25, 0.25, 0.25]) # Specific yield for Unconfined cells (adimentional)
 ss = np.array([1e-5, 1e-5, 1e-5, 1e-5, 1e-5]) # type: ignore # Specific storage for Confined cells (m-1)
-q = -30 # Pumping rate in m3/d
+q = -45 # Pumping rate in m3/d
 well_loc = (2, 0, 400) # Well location (layer, row, column)
 
 # Set model grid parameters
@@ -82,7 +82,7 @@ transition = 50 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
 
-boundary_keywords = ["GHB", "WEL", "DRN", "RIV"] #List of boundaries used in the model for plotting
+boundary_keywords = ["GHB", "WEL", "RIV"] #List of boundaries used in the model for plotting
 
 STEADY = True # Runs the steady state model
 plot_steady = True # Plots steady state outputs
@@ -112,7 +112,7 @@ R_array = modgeom6.compute_recharge(irch, R)
 zone_array = np.zeros((nlay, nrow, ncol), dtype=int) # Create zones array for zone budget
 for i in range(nlay):
     zone_array[i, :, :] = i + 1
-
+k_array = modgeom6.compute_3Darray(k, idomain)
 # Plot the arrays to check consistency
 #plt.imshow(idomain[0,:,:], cmap='viridis', interpolation='nearest', aspect=300)
 #plt.colorbar()  # Add color bar to show scale
@@ -260,8 +260,7 @@ wel = flopy.mf6.ModflowGwfwel(gwf,
                               stress_period_data = wel_spd, 
                               filename = f"{model_name}.wel")
 
-# General head boundary
-
+# General head boundary package
 ghb_1 = ztop_array[0,0,ncol-1]-(0.15*base_thicknesses[0])
 ghb_spd1 = {}
 ghb_spd1[0] = [((0, 0, ncol-1), ghb_1, k[0]*base_thicknesses[0]*width, "Unconfined"),
@@ -307,7 +306,7 @@ if STEADY:
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                 f"{model_ws}/fig/cross_section_heads.png",
                                 boundary_keywords = boundary_keywords,
-                                flow_dir = False, surface = True, 
+                                flow_dir = True, surface = True, 
                                 show=False, save=True, figsize=(19, 4), layers = True, 
                                 title="Cross section - Steady state simulation")
 
@@ -316,14 +315,16 @@ if STEADY:
                                 show=False, save=True, figsize=(14, 5), fontsize=14)
 
         modplot6.plot_cross_section_array(gwf, 
-                             zone_array, 
+                             k_array, 
                              nrow//2, 
                              f"{model_ws}/fig/cross_section_layers.png", 
                              boundary_keywords=boundary_keywords, 
                              show = False, 
                              save = True, 
                              figsize=(19, 5),
-                             fontsize=14, 
+                             fontsize=14,
+                             log=True,
+                             label="Hydraulic Conductivity (m/d)", 
                              title="Model layers")        
         
         # Plot heads with im.show
@@ -507,7 +508,7 @@ if TRANSIENT:
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                         f"{model_ws}/fig/cross_section_heads_t.png",
                                         boundary_keywords = boundary_keywords,
-                                        flow_dir = False, surface = True, layers=True,
+                                        flow_dir = True, surface = True, layers=True,
                                         show=False, save=True, figsize = (19, 4),
                                         title=f"Cross section at time {time} days")
 
@@ -517,16 +518,6 @@ if TRANSIENT:
                                             show = False, 
                                             save = True, 
                                             tau = None)
-
-        modtransient6.plot_head_time_series_with_equilibrium_markers("head_obs_t.csv", 
-                                            gwf, 
-                                            f"{model_ws}/fig/head_tne.png",
-                                            show = False, 
-                                            save = True, 
-                                            tstart = 0,
-                                            equilibrium_percentage = 95, 
-                                            tau=None)
-        
 
         #--------------------------------------- FLOW BUDGET ---------------------------------------------#
 
@@ -550,32 +541,6 @@ if TRANSIENT:
                                                 f"{model_ws}/fig/net_flow_ts.png",
                                                 show=False, save=True, tau = None)
 
-        modtransient6.plot_net_flow_time_series_with_equilibrium_markers(file_path, 
-                                        f"{model_ws}/fig/net_flow_tne.png", 
-                                        show=False, 
-                                        save=True, 
-                                        tstart = 1,
-                                        equilibrium_percentage = 95,
-                                        tau = None,
-                                        boundary_keywords=boundary_keywords)
-        
-        modtransient6.plot_storage_change_rate_with_stabilization(file_path, 
-                                        f"{model_ws}/fig/storage_change_rate_tne.png", 
-                                        show=False, 
-                                        save=True, 
-                                        tstart = 1,
-                                        epsilon = 0.05 # A change in the storage of 0.005 
-                                        #m3/day per day is taken as threshold for equilibrium assessment
-                                        )
-        modtransient6.plot_storage_change_with_stabilization(file_path, 
-                                        f"{model_ws}/fig/storage_change_tne.png", 
-                                        show=False, 
-                                        save=True, 
-                                        tstart = 1,
-                                        epsilon = 5 # A change in the storage of 0.005 
-                                        #m3/day per day is taken as threshold for equilibrium assessment
-                                        )
-       
         #--------------------------------------- ZONE BUDGET ---------------------------------------------#
         zone_bud_path = f"{model_ws}/zonebud.csv"
         modtransient6.plot_zone_budget(zone_bud_path, fig_dir, show=False, save=True, zone_descriptions = {
@@ -589,7 +554,7 @@ if TRANSIENT:
         #--------------------------------------- TRANSIENT ANIMATION ---------------------------------------------#
 
         if animate:
-            modplot6.plot_cross_sections_animation_transient(gwf, heads, qx, qy, qz, nrow//2, 
+            modplot6.plot_animation(gwf, heads, qx, qy, qz, nrow//2, 
                                         f"{model_ws}/sections",
                                         f"{model_ws}/fig/heads_transient.gif",
                                         boundary_keywords = boundary_keywords,

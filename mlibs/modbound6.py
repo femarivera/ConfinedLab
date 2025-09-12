@@ -1,33 +1,120 @@
-import flopy
-import numpy as np
+# ==========================================================================================
+#  modbound6.py - Modular Utilities for Boundary Condition Generation in MODFLOW 6 Models
+# ==========================================================================================
+#
+#  Author: MARIN RIVERA Carlos Felipe
+#  Organization: Bordeaux INP, Lab EPOC, Université de Bordeaux
+#  Project: Funded by the OneWater PEPR DEESAC Project 
+#
+#  DESCRIPTION:
+#  ------------
+#  As part of the ConfinedLab project, this module provides flexible utilities 
+#  for generating and manipulating boundary condition stress period data (SPD) for MODFLOW 6 groundwater models.
+#  The approach supports the creation of river (RIV), general head boundary (GHB), and drain (DRN) package inputs,
+#  as well as utilities for extracting active cell indices from model arrays.
+#
+#  MAIN FEATURES:
+#  --------------
+#  - Generate SPD for river, general head, and drain boundaries with flexible elevation and conductance options.
+#  - Support for both proportion-based and absolute elevation specification for boundary stages.
+#  - Input validation for clarity and reliability in all boundary condition functions.
+#  - Utilities for extracting active cell indices from irch/idomain arrays, with options for subsetting and sampling.
 
-def create_riv_spd(cells, drow, dcol, ztop, thickness_array, k_array, riverbed_thickness=1, river_width=1, a=0.1, b=0.2, conc=None):
+def create_riv_spd(
+    cells,
+    ztop,
+    thickness_array,
+    k_array,
+    river_length,
+    river_width=1,
+    riverbed_thickness=1,
+    stage_type="proportion",
+    a=0.1,
+    b=1.0,
+    conc=None
+):
     """
     Create river boundary condition parameters for multiple specified cells.
 
     Parameters:
-    - cells (list of tuples): A list of (k, i, j) tuples specifying the layer, row, and column indices of the cells.
-    - drow (float): Row length (horizontal discretization) for conductance calculation (river length).
-    - dcol (float): Column length (horizontal discretization) for conductance calculation.
-    - ztop (3D array): Top elevation of each cell (shape = nlay x nrow x ncol).
-    - thickness_array (3D array): Thickness of each cell.
-    - k_array (1D array): Hydraulic conductivity for each layer (shape = nlay).
-    - riverbed_thickness (float, optional): Thickness of the riverbed (default = 1).
-    - river_width (float, optional): Width of the river (default = 1).
-    - a (float, optional): Percentage of thickness used to calculate river stage (default = 0.1).
-    - b (float, optional): Percentage of thickness used to calculate river bottom (default = 0.2).
-    - conc (float or None, optional): River concentration (if applicable). Default is None.
+        cells (list of tuples): List of (k, i, j) tuples specifying layer, row, and column indices.
+        ztop (3D array): Top elevation of each cell (shape: nlay x nrow x ncol).
+        thickness_array (3D array): Thickness of each cell (shape: nlay x nrow x ncol).
+        k_array (1D array): Hydraulic conductivity of riverbed for each layer (shape: nlay) for conductance calculation.
+        river_length (float): Length of the river over the cells (horizontal discretization) for conductance calculation.
+        river_width (float, optional): Width of the river (default: 1) for conductance calculation.
+        riverbed_thickness (float, optional): Thickness of the riverbed (default: 1) for conductance calculation.
+        stage_type (str, optional): Way off setting the river stage relative to the cell top elevation.
+                                    'proportion' or 'absolute'. If 'proportion', a is fraction of thickness. If 'absolute', a is absolute offset.
+        a (float, optional): Offset for the location of river stage relative to the top elevation of the cell.
+                            If 'proportion', must be 0 < a < 1. If 'absolute', must be a > 0.
+        b (float, optional): Desired separation between river stage and river bottom (in model units, default: 1.0).
+        conc (float or None, optional): River concentration (if applicable). Default is None.
 
     Returns:
-    - riv_spd (dict): Stress period data for the river boundary condition.
+        riv_spd (dict): Stress period data for the river boundary condition.
+            Format: {0: [(k, i, j, stage, cond, bottom[, conc]), ...]}
     """
+    # Input checks
+    if not isinstance(cells, (list, tuple)) or not all(isinstance(cell, (tuple, list)) and len(cell) == 3 for cell in cells):
+        raise ValueError("cells must be a list of (k, i, j) tuples.")
+    if not (hasattr(ztop, "shape") and len(ztop.shape) == 3):
+        raise ValueError("ztop must be a 3D array (nlay, nrow, ncol).")
+    if not (hasattr(thickness_array, "shape") and len(thickness_array.shape) == 3):
+        raise ValueError("thickness_array must be a 3D array (nlay, nrow, ncol).")
+    if not (hasattr(k_array, "shape") and len(k_array.shape) == 1):
+        raise ValueError("k_array must be a 1D array (nlay,).")
+    if not (isinstance(river_length, (float, int)) and river_length > 0):
+        raise ValueError("river_length must be a positive number.")
+    if not (isinstance(riverbed_thickness, (float, int)) and riverbed_thickness > 0):
+        raise ValueError("riverbed_thickness must be a positive number.")
+    if not (isinstance(river_width, (float, int)) and river_width > 0):
+        raise ValueError("river_width must be a positive number.")
+    if stage_type == "proportion":
+        if not (isinstance(a, (float, int)) and 0 < a < 1):
+            raise ValueError("For 'proportion' stage_type, 'a' must be a float strictly between 0 and 1 (0 < a < 1).")
+    elif stage_type == "absolute":
+        if not (isinstance(a, (float, int)) and a > 0):
+            raise ValueError("For 'absolute' stage_type, 'a' must be a positive float or int (a > 0).")
+    else:
+        raise ValueError("stage_type must be either 'proportion' or 'absolute'.")
+    if not (isinstance(b, (float, int)) and b > 0):
+        raise ValueError("b must be a positive number (desired separation in model units).")
+    if conc is not None and not isinstance(conc, (float, int)):
+        raise ValueError("conc must be a float, int, or None.")
+
+    nlay, nrow, ncol = ztop.shape
+    if thickness_array.shape != (nlay, nrow, ncol):
+        raise ValueError("thickness_array must have the same shape as ztop.")
+    if k_array.shape[0] != nlay:
+        raise ValueError("k_array length must match the number of layers in ztop.")
+    
+    # Initialize the stress period data dictionary
     riv_spd = {}
     riv_entries = []
 
     for k, i, j in cells:
-        riv_stage = ztop[k, i, j] - (a * thickness_array[k, i , j])
-        riv_bottom = riv_stage - 1  # or ztop[k, i, j] - (b * base_thicknesses[k])
-        riv_cond = (k_array[k] * drow * river_width) / (10 * riverbed_thickness)
+        cell_bottom = ztop[k, i, j] - thickness_array[k, i, j]
+        if stage_type == "proportion":
+            riv_stage = ztop[k, i, j] - (a * thickness_array[k, i , j])
+        elif stage_type == "absolute":
+            riv_stage = ztop[k, i, j] - a
+            if riv_stage < cell_bottom:
+                riv_stage = ztop[k, i, j] - (0.1 * thickness_array[k, i , j])
+
+        riv_bottom = riv_stage - b
+        if riv_bottom < cell_bottom:
+            # If below cell bottom, set it a proportion above cell bottom
+            riv_bottom = cell_bottom + (0.1 * thickness_array[k, i, j])
+            # Ensure still below stage
+            riv_bottom = min(riv_bottom, riv_stage - 0.01)        
+
+        assert ztop[k, i, j] > riv_stage > riv_bottom > cell_bottom, (
+            f"Inconsistent elevations for cell (k={k}, i={i}, j={j}): "
+            f"ztop={ztop[k, i, j]}, riv_stage={riv_stage}, riv_bottom={riv_bottom}, cell_bottom={cell_bottom}"
+        )
+
+        riv_cond = (k_array[k] * river_length * river_width) / (riverbed_thickness)
 
         if conc is not None:
             riv_entries.append((k, i, j, riv_stage, riv_cond, riv_bottom, conc))
@@ -37,24 +124,98 @@ def create_riv_spd(cells, drow, dcol, ztop, thickness_array, k_array, riverbed_t
     riv_spd[0] = riv_entries
     return riv_spd
 
-def create_ghb_spd(cells, drow, dcol, ztop, thickness_array, k_array, ghb_distance=1, a=0.1):
+def create_ghb_spd(
+    cells,
+    ztop,
+    thickness_array,
+    k_array,
+    ghb_length,
+    ghb_distance=1,
+    gh_type="proportion",
+    a=0.1,
+    conc=None):
     """
     Create ghb boundary condition parameters for multiple specified cells.
 
     Parameters:
     - cells (list of tuples): A list of (k, i, j) tuples specifying the layer, row, and column indices of the cells.
-    - drow (float): Row length (horizontal discretization) for conductance calculation.
-    - dcol (float): Column length (horizontal discretization) for conductance calculation.
-    - ztop (3D array): Top elevation of each cell (shape = nlay x nrow x ncol).
+    - ztop (3D array): Top elevation of each cell (shape = nlay x nrow x ncol). 
     - thickness_array (3D array): Thickness of each cell (shape = nlay x nrow x ncol).
-    - k_array (1D array): Hydraulic conductivity for each layer (shape = nlay).
-    - ghb_distance (float, optional): Distance to ghb (default = 1).
-    - a (float, optional): Percentage of thickness used to calculate ghb (default = 0.1).
-    
+    - k_array (1D array): Hydraulic conductivity for each layer (shape = nlay).   
+    - ghb_length (float): Length of the ghb for conductance calculation (for lateral flow it corresponds to the cell width
+                        perpendicular to the flow direction).
+    - ghb_width (float): Width of the ghb for conductance calculation (for lateral flow it corresponds to the saturated thickness
+                         perpendicular to the flow direction: used built-in).
+    - ghb_distance (float): Distance of the gh from the cell boundary (default 1 model units) for conductance calculation.
+      For more on conductance calculations see https://www.xmswiki.com/wiki/GMS:GHB_Package and the MODFLOW 6 documentation. 
+    - gh_type (str, optional): Way of setting the gh elevation relative to the cell top elevation.
+                                 'proportion' or 'absolute'. If 'proportion', a is fraction of thickness. 
+                                 If 'absolute', a is absolute offset.
+    - a (float, optional): Offset for the location of ghb stage relative to the top elevation of the cell.
+                            If 'proportion', must be 0 < a < 1. If 'absolute', must be a > 0.    
+    - conc (float or None, optional): ghb concentration (if applicable). Default is None.
 
     Returns:
-    - ghb_spd (dict): Stress period data for the river boundary condition.
+    - ghb_spd (dict): Stress period data for the ghb boundary condition.
     """
+
+    # Input checks
+    if not isinstance(cells, (list, tuple)) or not all(isinstance(cell, (tuple, list)) and len(cell) == 3 for cell in cells):
+        raise ValueError("cells must be a list of (k, i, j) tuples.")
+    if not (hasattr(ztop, "shape") and len(ztop.shape) == 3):
+        raise ValueError("ztop must be a 3D array (nlay, nrow, ncol).")
+    if not (hasattr(thickness_array, "shape") and len(thickness_array.shape) == 3):
+        raise ValueError("thickness_array must be a 3D array (nlay, nrow, ncol).")
+    if not (hasattr(k_array, "shape") and len(k_array.shape) == 1):
+        raise ValueError("k_array must be a 1D array (nlay,).")
+    if not (isinstance(ghb_length, (float, int)) and ghb_length > 0):
+        raise ValueError("ghb_length must be a positive number.")
+    if not (isinstance(ghb_distance, (float, int)) and ghb_distance > 0):
+        raise ValueError("ghb_distance must be a positive number.")
+    if gh_type == "proportion":
+        if not (isinstance(a, (float, int)) and 0 < a < 1):
+            raise ValueError("For 'proportion' gh_type, 'a' must be a float strictly between 0 and 1 (0 < a < 1).")
+    elif gh_type == "absolute":
+        if not (isinstance(a, (float, int)) and a > 0):
+            raise ValueError("For 'absolute' gh_type, 'a' must be a positive float or int (a > 0).")
+    else:
+        raise ValueError("gh_type must be either 'proportion' or 'absolute'.")
+    if conc is not None and not isinstance(conc, (float, int)):
+        raise ValueError("conc must be a float, int, or None.")
+
+    nlay, nrow, ncol = ztop.shape
+    if thickness_array.shape != (nlay, nrow, ncol):
+        raise ValueError("thickness_array must have the same shape as ztop.")
+    if k_array.shape[0] != nlay:
+        raise ValueError("k_array length must match the number of layers in ztop.")
+    
+    # Initialize the stress period data dictionary
+    ghb_spd = {}
+    ghb_entries = []
+
+    for k, i, j in cells:
+        cell_bottom = ztop[k, i, j] - thickness_array[k, i, j]
+        if gh_type == "proportion":
+            ghb_elev = ztop[k, i, j] - (a * thickness_array[k, i , j])
+        elif gh_type == "absolute":
+            ghb_elev = ztop[k, i, j] - a
+            if ghb_elev < cell_bottom:
+                ghb_elev = ztop[k, i, j] - (0.1 * thickness_array[k, i , j])
+
+        assert ztop[k, i, j] > ghb_elev > cell_bottom, (
+            f"Inconsistent elevations for cell (k={k}, i={i}, j={j}): "
+            f"ztop={ztop[k, i, j]}, ghb_elev={ghb_elev}, cell_bottom={cell_bottom}"
+        )
+
+        ghb_cond = (k_array[k] * ghb_length * thickness_array[k, i, j]) / (ghb_distance)
+
+        if conc is not None:
+            ghb_entries.append((k, i, j, ghb_elev, ghb_cond, conc))
+        else:
+            ghb_entries.append((k, i, j, ghb_elev, ghb_cond))
+
+    ghb_spd[0] = ghb_entries
+    return ghb_spd
     # Initialize an empty dictionary for the river stress period data
     ghb_spd = {}
 
@@ -77,131 +238,150 @@ def create_ghb_spd(cells, drow, dcol, ztop, thickness_array, k_array, ghb_distan
 
     return ghb_spd
 
-def create_drn_spd(cells, drow, dcol, ztop, thickness_array, k_array, drn_width=1, a=0.1):
+def create_drn_spd(
+    cells,
+    ztop,
+    thickness_array,
+    k_array,
+    drain_length,
+    drain_width=1,
+    drainbed_thickness=1,
+    elev_type="proportion",
+    a=0.1,
+    conc=None):
     """
     Create drain boundary condition parameters for multiple specified cells.
 
     Parameters:
     - cells (list of tuples): A list of (k, i, j) tuples specifying the layer, row, and column indices of the cells.
-    - drow (float): Row length (horizontal discretization) for conductance calculation (drn length).
-    - river_width (float): Column length (horizontal discretization) for conductance calculation.
-    - ztop (3D array): Top elevation of each cell (shape = nlay x nrow x ncol).
-    - thickness_array (3D array): Thickness of each cell.
-    - k_array (1D array): Hydraulic conductivity for each layer (shape = nlay).
-    - a (float, optional): Percentage of thickness used to calculate river stage (default = 0.1).
-    - b (float, optional): Percentage of thickness used to calculate river bottom (default = 0.2).
+    - ztop (3D array): Top elevation of each cell (shape = nlay x nrow x ncol). 
+    - thickness_array (3D array): Thickness of each cell (shape = nlay x nrow x ncol).
+    - k_array (1D array): Hydraulic conductivity for each layer (shape = nlay).   
+    - drain_length (float): Length of the drain for conductance calculation.
+    - drain_width (float): Width of the drain for conductance calculation.
+    - drainbed_thickness (float): Thickness of the sediments at the drain for conductance calculation (default 1 model units).
+    - elev_type (str, optional): Way of setting the drain elevation relative to the cell top elevation.
+                                 'proportion' or 'absolute'. If 'proportion', a is fraction of thickness. 
+                                 If 'absolute', a is absolute offset.
+    - a (float, optional): Offset for the location of drain stage relative to the top elevation of the cell.
+                            If 'proportion', must be 0 < a < 1. If 'absolute', must be a > 0.    
+    - conc (float or None, optional): Drain concentration (if applicable). Default is None.
 
     Returns:
-    - drn_spd (dict): Stress period data for the river boundary condition.
+    - drn_spd (dict): Stress period data for the drain boundary condition.
     """
-    # Initialize an empty dictionary for the river stress period data
-    drn_spd = {}
 
-    # List to hold all river data entries
+    # Input checks
+    if not isinstance(cells, (list, tuple)) or not all(isinstance(cell, (tuple, list)) and len(cell) == 3 for cell in cells):
+        raise ValueError("cells must be a list of (k, i, j) tuples.")
+    if not (hasattr(ztop, "shape") and len(ztop.shape) == 3):
+        raise ValueError("ztop must be a 3D array (nlay, nrow, ncol).")
+    if not (hasattr(thickness_array, "shape") and len(thickness_array.shape) == 3):
+        raise ValueError("thickness_array must be a 3D array (nlay, nrow, ncol).")
+    if not (hasattr(k_array, "shape") and len(k_array.shape) == 1):
+        raise ValueError("k_array must be a 1D array (nlay,).")
+    if not (isinstance(drain_length, (float, int)) and drain_length > 0):
+        raise ValueError("drain_length must be a positive number.")
+    if not (isinstance(drainbed_thickness, (float, int)) and drainbed_thickness > 0):
+        raise ValueError("drainbed_thickness must be a positive number.")
+    if not (isinstance(drain_width, (float, int)) and drain_width > 0):
+        raise ValueError("drain_width must be a positive number.")
+    if elev_type == "proportion":
+        if not (isinstance(a, (float, int)) and 0 < a < 1):
+            raise ValueError("For 'proportion' elev_type, 'a' must be a float strictly between 0 and 1 (0 < a < 1).")
+    elif elev_type == "absolute":
+        if not (isinstance(a, (float, int)) and a > 0):
+            raise ValueError("For 'absolute' elev_type, 'a' must be a positive float or int (a > 0).")
+    else:
+        raise ValueError("elev_type must be either 'proportion' or 'absolute'.")
+    if conc is not None and not isinstance(conc, (float, int)):
+        raise ValueError("conc must be a float, int, or None.")
+
+    nlay, nrow, ncol = ztop.shape
+    if thickness_array.shape != (nlay, nrow, ncol):
+        raise ValueError("thickness_array must have the same shape as ztop.")
+    if k_array.shape[0] != nlay:
+        raise ValueError("k_array length must match the number of layers in ztop.")
+    
+    # Initialize the stress period data dictionary
+    drn_spd = {}
     drn_entries = []
 
-    # Iterate over each cell specified in the input list
     for k, i, j in cells:
-        # Compute river stage and bottom for the current cell
-        drn_elev = ztop[i, j] - (a * thickness_array[k, i, j])
-        #riv_bottom = ztop[k, i, j] - (b * base_thicknesses[k])
+        cell_bottom = ztop[k, i, j] - thickness_array[k, i, j]
+        if elev_type == "proportion":
+            drn_elev = ztop[k, i, j] - (a * thickness_array[k, i , j])
+        elif elev_type == "absolute":
+            drn_elev = ztop[k, i, j] - a
+            if drn_elev < cell_bottom:
+                drn_elev = ztop[k, i, j] - (0.1 * thickness_array[k, i , j])
 
-        # Compute river conductance
-        drn_cond = (k_array[k] * drow * drn_width) / (10)
+        assert ztop[k, i, j] > drn_elev > cell_bottom, (
+            f"Inconsistent elevations for cell (k={k}, i={i}, j={j}): "
+            f"ztop={ztop[k, i, j]}, drn_elev={drn_elev}, cell_bottom={cell_bottom}"
+        )
 
-        # Append the river entry for the current cell
-        drn_entries.append((k, i, j, drn_elev, drn_cond))
+        drn_cond = (k_array[k] * drain_length * drain_width) / (drainbed_thickness)
 
-    # Assign the river entries to the first stress period (0)
+        if conc is not None:
+            drn_entries.append((k, i, j, drn_elev, drn_cond, conc))
+        else:
+            drn_entries.append((k, i, j, drn_elev, drn_cond))
+
     drn_spd[0] = drn_entries
-
     return drn_spd
 
-def extract_active_cells_row(irch: np.ndarray, idomain: np.ndarray):
-    """
-    Extract active cell indices (k, i, j) from irch and idomain arrays.
-    Parameters:
-        irch (np.ndarray): 2D array of shape (1, ncol) with layer indices (0 to nlay-1).
-        idomain (np.ndarray): 3D array of shape (nlay, 1, ncol) with values 1 (active) or 0 (inactive).
-    Returns:
-        List[Tuple[int, int, int]]: List of (k, i, j) indices for active cells.
-    """
-    nrow = irch.shape[0]
-    assert nrow == 1, "irch must have only one row"
-    ncol = irch.shape[1]
-    i = 0  # only one row
-    j_vals = np.arange(ncol-1)
-    k_vals = irch[i, j_vals]  # extract layer numbers from irch
-    # Check if each (k, 0, j) cell is active
-    active_mask = idomain[k_vals, i, j_vals] == 1
-    # Build list of active (k, i, j) tuples
-    active_cells = [(int(k), i, int(j)) for k, j, active in zip(k_vals, j_vals, active_mask) if active]
-    return active_cells
-
-def extract_active_cells(irch: np.ndarray, idomain: np.ndarray):
-
-    import numpy as np
-
+def extract_active_cells(irch, idomain):
     """
     Extract active cell indices (k, i, j) from irch and idomain arrays.
 
     Parameters:
-        irch (np.ndarray): 2D array of shape (nrow, ncol) with layer indices (0 to nlay-1).
-        idomain (np.ndarray): 3D array of shape (nlay, nrow, ncol) with values 1 (active) or 0 (inactive).
+        irch: 2D array-like of shape (nrow, ncol) with layer indices (0 to nlay-1).
+        idomain: 3D array-like of shape (nlay, nrow, ncol) with values 1 (active) or 0 (inactive).
+
     Returns:
         List[Tuple[int, int, int]]: List of (k, i, j) indices for active cells.
     """
+
+    # Input checks
     nrow, ncol = irch.shape
+    nlay, idom_nrow, idom_ncol = idomain.shape
+    if (idom_nrow, idom_ncol) != (nrow, ncol):
+        raise ValueError(f"idomain shape (nlay, nrow, ncol) must match irch shape (nrow, ncol) in last two dimensions. Got {idomain.shape} and {irch.shape}.")
+    
     active_cells = []
-
     for i in range(nrow):
         for j in range(ncol):
-            k = int(irch[i, j])  # layer index
-            if idomain[k, i, j] == 1:  # check if active
+            k = int(irch[i, j])
+            if 0 <= k < nlay and idomain[k, i, j] == 1:
                 active_cells.append((k, i, j))
-
-    return active_cells
-
-def extract_active_cells_n_row(irch: np.ndarray, idomain: np.ndarray, n: int):
-    """
-    Extract active cell indices (k, i, j) from irch and idomain arrays, checking every n-th column.
-    Parameters:
-        irch (np.ndarray): 2D array of shape (1, ncol) with layer indices (0 to nlay-1).
-        idomain (np.ndarray): 3D array of shape (nlay, 1, ncol) with values 1 (active) or 0 (inactive).
-        n (int): Step size for column indexing. The function will check the 1st, n-th, 2n-th, etc., columns.
-    Returns:
-        List[Tuple[int, int, int]]: List of (k, i, j) indices for active cells checked every n-th column.
-    """
-    nrow = irch.shape[0]
-    assert nrow == 1, "irch must have only one row"
-    ncol = irch.shape[1]
-    i = 0  # only one row
-    j_vals = np.arange(0, ncol - 1, n)  # select every n-th column, excluding the last one
-    k_vals = irch[i, j_vals]  # extract layer numbers for the selected columns
-    # Check if each (k, 0, j) cell is active
-    active_mask = idomain[k_vals, i, j_vals] == 1
-    # Build list of active (k, i, j) tuples
-    active_cells = [(int(k), i, int(j)) for k, j, active in zip(k_vals, j_vals, active_mask) if active]
     return active_cells
 
 def extract_active_cells_n(irch, idomain, n):
-    
-    import numpy as np  
     """
     Extract active cell indices (k, i, j) from irch and idomain arrays,
     checking every n-th column.
 
     Parameters:
-        irch (np.ndarray): 2D array of shape (nrow, ncol) with layer indices (0 to nlay-1).
-        idomain (np.ndarray): 3D array of shape (nlay, nrow, ncol) with values 1 (active) or 0 (inactive).
+        irch: 2D array-like of shape (nrow, ncol) with layer indices (0 to nlay-1).
+        idomain: 3D array-like of shape (nlay, nrow, ncol) with values 1 (active) or 0 (inactive).
         n (int): Step size for column indexing. The function will check the 1st, n-th, 2n-th, etc., columns.
 
     Returns:
         list of (k, i, j) indices for active cells checked every n-th column.
     """
-    nrow, ncol = irch.shape
-    active_cells = []
+    import numpy as np
 
+    # Input checks
+    nrow, ncol = irch.shape
+    nlay, idom_nrow, idom_ncol = idomain.shape
+    if (idom_nrow, idom_ncol) != (nrow, ncol):
+        raise ValueError(f"idomain shape (nlay, nrow, ncol) must match irch shape (nrow, ncol) in last two dimensions. Got {idomain.shape} and {irch.shape}.")
+    if not (isinstance(n, int) and n > 0):
+        raise ValueError("n must be a positive integer.")
+    nrow, ncol = irch.shape
+    
+    active_cells = []
     for i in range(nrow):
         j_vals = np.arange(0, ncol - 1, n)  # select every n-th column, excluding the last one
         k_vals = irch[i, j_vals]            # extract layer numbers for selected columns
@@ -213,14 +393,13 @@ def extract_active_cells_n(irch, idomain, n):
     return active_cells
 
 def extract_active_cells_range(irch, idomain, row_start, row_end, col_start, col_end):
-    import numpy as np
     """
     Extract active cell indices (k, i, j) from irch and idomain arrays,
     within a specified submatrix defined by row and column ranges.
 
     Parameters:
-        irch (np.ndarray): 2D array of shape (nrow, ncol) with layer indices (0 to nlay-1).
-        idomain (np.ndarray): 3D array of shape (nlay, nrow, ncol) with values 1 (active) or 0 (inactive).
+        irch: 2D array-like of shape (nrow, ncol) with layer indices (0 to nlay-1).
+        idomain: 3D array-like of shape (nlay, nrow, ncol) with values 1 (active) or 0 (inactive).
         row_start (int): Starting row index (inclusive).
         row_end (int): Ending row index (inclusive).
         col_start (int): Starting column index (inclusive).
@@ -229,11 +408,17 @@ def extract_active_cells_range(irch, idomain, row_start, row_end, col_start, col
     Returns:
         list of (k, i, j) indices for active cells within the specified submatrix.
     """
-    nrow, ncol = irch.shape
-    # Validate indices
-    assert 0 <= row_start <= row_end < nrow, f"Row range {row_start}-{row_end} out of bounds (0–{nrow-1})"
-    assert 0 <= col_start <= col_end < ncol, f"Column range {col_start}-{col_end} out of bounds (0–{ncol-1})"
+    import numpy as np
 
+    # Input checks
+    nrow, ncol = irch.shape
+    nlay, idom_nrow, idom_ncol = idomain.shape
+    if (idom_nrow, idom_ncol) != (nrow, ncol):
+        raise ValueError(f"idomain shape (nlay, nrow, ncol) must match irch shape (nrow, ncol) in last two dimensions. Got {idomain.shape} and {irch.shape}.")
+    if not (0 <= row_start <= row_end < nrow):
+        raise ValueError(f"Row range {row_start}-{row_end} out of bounds (0–{nrow-1})")
+    if not (0 <= col_start <= col_end < ncol):
+        raise ValueError(f"Column range {col_start}-{col_end} out of bounds (0–{ncol-1})")
     active_cells = []
 
     for i in range(row_start, row_end + 1):

@@ -53,11 +53,11 @@ model_name = 'DEESAC'
 transient_name = 'DEESACt'
 
 # Set model parameters
-k = np.array([250, 1e-7, 25, 1e-7, 25]) #Horizontal hydraulic conductivity in m/d
+k = np.array([250, 1e-3, 25, 1e-3, 25]) #Horizontal hydraulic conductivity in m/d
 R = np.array([8e-4, 0, 8e-4, 0, 8e-4]) #Arid/Semi-arid conditions rates in m/d
 sy = np.array([0.25, 0.25, 0.25, 0.25, 0.25]) # Specific yield for Unconfined cells (adimentional)
 ss = np.array([1e-5, 1e-5, 1e-5, 1e-5, 1e-5]) # type: ignore # Specific storage for Confined cells (m-1)
-q = -15 # Pumping rate in m3/d
+q = -30 # Pumping rate in m3/d
 well_loc = (2, 0, 400) # Well location (layer, row, column)
 
 # Set model grid parameters
@@ -82,8 +82,6 @@ transition = 50 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
 
-ACTIVATE_GHB1 = True #Activates main lateral outflow of the system to the right
-ACTIVATE_GHB2 = False #Activates a lateral inflow to the left
 boundary_keywords = ["GHB", "WEL", "DRN", "RIV"] #List of boundaries used in the model for plotting
 
 STEADY = True # Runs the steady state model
@@ -201,19 +199,42 @@ oc = flopy.mf6.ModflowGwfoc(
 
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
+# River package
 riv_cells1 = modbound6.extract_active_cells_n(irch, idomain, n=20)
-riv_spd1 = modbound6.create_riv_spd(riv_cells1, drow, dcol, ztop_array, thickness_array, k, a=0.15)
+riv_spd1 = modbound6.create_riv_spd(
+    riv_cells1,
+    ztop_array,
+    thickness_array,
+    np.array([k[0]/100,k[1]*10,k[2]/10,k[3]*10,k[4]/10]),
+    drow,
+    river_width=1,
+    riverbed_thickness=1,
+    stage_type="proportion",
+    a=0.1,
+    b=1,
+    conc=None)
 riv1 = flopy.mf6.ModflowGwfriv(gwf, 
                               pname = "riv",
                               save_flows = True,
                               stress_period_data = riv_spd1,
                               filename = f"{model_name}.riv")
 
-drn_cells1 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 45, 110)
-drn_cells2 = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 145, 210)
+# Drain package
+drn_cells1 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 50, 110)
+drn_cells2 = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 150, 210)
 #drn_cells3 = [(3,0,j) for j in range(100, 110)] + [(1,0,j) for j in range(200, 210)]
 drn_cells = drn_cells1 + drn_cells2 #+ drn_cells3
-drn_spd = modbound6.create_drn_spd(drn_cells, drow, dcol, ztop, thickness_array, 10000*k, a=0.1)
+drn_spd = modbound6.create_drn_spd(
+    drn_cells,
+    ztop_array,
+    thickness_array,
+    1000000*k,
+    drow,
+    drain_width=1,
+    drainbed_thickness=1,
+    elev_type="absolute",
+    a=10,
+    conc=None)
 drn = flopy.mf6.ModflowGwfdrn(gwf, 
                               pname = "drn",
                               save_flows = True,
@@ -240,34 +261,22 @@ wel = flopy.mf6.ModflowGwfwel(gwf,
                               filename = f"{model_name}.wel")
 
 # General head boundary
-if ACTIVATE_GHB1:
-    ghb_1 = ztop_array[0,0,ncol-1]-(0.1*base_thicknesses[0])
-    ghb_spd1 = {}
-    ghb_spd1[0] = [((0, 0, ncol-1), ghb_1, k[0]*base_thicknesses[0]*width, "Unconfined"),
-                   ((1, 0, ncol-1), ghb_1, k[1]*base_thicknesses[1]*width, "Aqt1"),
-                   ((2, 0, ncol-1), ghb_1, k[2]*base_thicknesses[2]*width, "Caq1"),
-                   ((3, 0, ncol-1), ghb_1, k[3]*base_thicknesses[3]*width, "Aqt2"),
-                   ((4, 0, ncol-1), ghb_1, k[4]*base_thicknesses[4]*width, "Caq2")]
-    ghb1 = flopy.mf6.ModflowGwfghb(gwf,
-                                  pname="ghb1",
-                                  print_input=True,
-                                  print_flows=True,
-                                  save_flows=True,
-                                  boundnames=True,
-                                  filename = f"{model_name}_1.ghb",
-                                  stress_period_data=ghb_spd1)
 
-if ACTIVATE_GHB2:
-    ghb_cells2 = [(2,0,0)]
-    ghb_spd2 = modbound6.create_ghb_spd(ghb_cells2, drow, dcol, ztop_array, base_thicknesses, k, a=0.05)
-    ghb2 = flopy.mf6.ModflowGwfghb(gwf,
-                                  pname="ghb2",
-                                  print_input=True,
-                                  print_flows=True,
-                                  save_flows=True,
-                                  boundnames=True,
-                                  filename = f"{model_name}_2.ghb",
-                                  stress_period_data=ghb_spd2)  
+ghb_1 = ztop_array[0,0,ncol-1]-(0.15*base_thicknesses[0])
+ghb_spd1 = {}
+ghb_spd1[0] = [((0, 0, ncol-1), ghb_1, k[0]*base_thicknesses[0]*width, "Unconfined"),
+                ((1, 0, ncol-1), ghb_1, k[1]*base_thicknesses[1]*width, "Aqt1"),
+                ((2, 0, ncol-1), ghb_1, k[2]*base_thicknesses[2]*width, "Caq1"),
+                ((3, 0, ncol-1), ghb_1, k[3]*base_thicknesses[3]*width, "Aqt2"),
+                ((4, 0, ncol-1), ghb_1, k[4]*base_thicknesses[4]*width, "Caq2")]
+ghb1 = flopy.mf6.ModflowGwfghb(gwf,
+                                pname="ghb1",
+                                print_input=True,
+                                print_flows=True,
+                                save_flows=True,
+                                boundnames=True,
+                                filename = f"{model_name}_1.ghb",
+                                stress_period_data=ghb_spd1)
 
 # --------------------------------------------------------------------------- #    
 # ---------------------------- RUN SIMULATION ------------------------------- #

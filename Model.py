@@ -31,7 +31,7 @@ dbcol_width = 19/2.54
 
 # Import local modules
 sys.path.append('..')
-from mlibs import modplot6, modtransient6, modpump6, modgeom6, modbound6 # type: ignore
+from mlibs import modpar6, modplot6, modtransient6, modpump6, modgeom6, modbound6 # type: ignore
 
 # Check the current and parent directories
 current_dir = os.getcwd()
@@ -57,7 +57,7 @@ k = np.array([250, 1e-3, 25, 1e-3, 25]) #Horizontal hydraulic conductivity in m/
 R = np.array([8e-4, 0, 8e-4, 0, 8e-4]) #Arid/Semi-arid conditions rates in m/d
 sy = np.array([0.25, 0.25, 0.25, 0.25, 0.25]) # Specific yield for Unconfined cells (adimentional)
 ss = np.array([1e-5, 1e-5, 1e-5, 1e-5, 1e-5]) # type: ignore # Specific storage for Confined cells (m-1)
-q = -45 # Pumping rate in m3/d
+q = -15 # Pumping rate in m3/d
 well_loc = (2, 0, 400) # Well location (layer, row, column)
 
 # Set model grid parameters
@@ -123,6 +123,37 @@ k_array = modgeom6.compute_3Darray(k, idomain)
 #plt.title('Recharge')
 #plt.show()
 
+
+# ------------------------------------------------------------------------------- #
+# ----------------------- RANDOM PARAMETER FIELDS ------------------------------- #
+# ------------------------------------------------------------------------------- #
+
+k0 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                    geom_mean=k[0], sill=0.5, nugget=0.0,
+                                    range_param=15000, drow=drow, dcol=dcol,
+                                    param_type="K", seed=0)
+
+k1 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                    geom_mean=k[1], sill=1, nugget=0.0,
+                                    range_param=15000, drow=drow, dcol=dcol,
+                                    param_type="K", seed=1)
+
+k2 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                    geom_mean=k[2], sill=0.5, nugget=0.0,
+                                    range_param=15000, drow=drow, dcol=dcol,
+                                    param_type="K", seed=2)
+
+k3 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                    geom_mean=k[3], sill=1, nugget=0.0,
+                                    range_param=15000, drow=drow, dcol=dcol,
+                                    param_type="K", seed=3)
+
+k4 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                    geom_mean=k[4], sill=0.5, nugget=0.0,
+                                    range_param=15000, drow=drow, dcol=dcol,
+                                    param_type="K", seed=4)
+
+k_array = modpar6.stack_fields_to_3D([k0, k1, k2, k3, k4], nlay, nrow, ncol)
 # ------------------------------------------------------------------------------- #
 # --------------------------- BUILDING SIMULATION ------------------------------- #
 # ------------------------------------------------------------------------------- #
@@ -183,8 +214,8 @@ npf = flopy.mf6.ModflowGwfnpf(gwf,
                               pname = "npf",
                               save_specific_discharge = True,
                               icelltype=[1, 1, 1, 1, 1], 
-                              k=k,
-                              k33=k/10,
+                              k=k_array,
+                              k33=k_array/10,
                               filename=f"{model_name}.npf")
 
 # Output control

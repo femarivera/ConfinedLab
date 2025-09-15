@@ -53,7 +53,7 @@ model_name = 'DEESAC'
 transient_name = 'DEESACt'
 
 # Set model parameters
-k = np.array([250, 1e-3, 25, 1e-3, 25]) #Horizontal hydraulic conductivity in m/d
+k = np.array([250, 1e-4, 25, 1e-4, 25]) #Horizontal hydraulic conductivity in m/d
 R = np.array([8e-4, 0, 8e-4, 0, 8e-4]) #Arid/Semi-arid conditions rates in m/d
 sy = np.array([0.25, 0.25, 0.25, 0.25, 0.25]) # Specific yield for Unconfined cells (adimentional)
 ss = np.array([1e-5, 1e-5, 1e-5, 1e-5, 1e-5]) # type: ignore # Specific storage for Confined cells (m-1)
@@ -83,6 +83,7 @@ transition = 50 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
 # ------------------------------------------------------------------------------- #
 
 boundary_keywords = ["GHB", "WEL", "RIV"] #List of boundaries used in the model for plotting
+heterogeneity = True # If True, generates random hydraulic conductivity fields
 
 STEADY = True # Runs the steady state model
 plot_steady = True # Plots steady state outputs
@@ -128,32 +129,35 @@ k_array = modgeom6.compute_3Darray(k, idomain)
 # ----------------------- RANDOM PARAMETER FIELDS ------------------------------- #
 # ------------------------------------------------------------------------------- #
 
-k0 = modpar6.generate_random_field((nrow, ncol), "exponential",
-                                    geom_mean=k[0], sill=0.5, nugget=0.0,
-                                    range_param=15000, drow=drow, dcol=dcol,
-                                    param_type="K", seed=0)
+if heterogeneity:
+    # Generate random hydraulic conductivity fields for each layer
+    k0 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                        geom_mean=k[0], sill=0.5, nugget=0.0,
+                                        range_param=15000, drow=drow, dcol=dcol,
+                                        param_type="K", seed=0)
 
-k1 = modpar6.generate_random_field((nrow, ncol), "exponential",
-                                    geom_mean=k[1], sill=1, nugget=0.0,
-                                    range_param=15000, drow=drow, dcol=dcol,
-                                    param_type="K", seed=1)
+    k1 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                        geom_mean=k[1], sill=1, nugget=0.0,
+                                        range_param=15000, drow=drow, dcol=dcol,
+                                        param_type="K", seed=1)
 
-k2 = modpar6.generate_random_field((nrow, ncol), "exponential",
-                                    geom_mean=k[2], sill=0.5, nugget=0.0,
-                                    range_param=15000, drow=drow, dcol=dcol,
-                                    param_type="K", seed=2)
+    k2 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                        geom_mean=k[2], sill=0.5, nugget=0.0,
+                                        range_param=15000, drow=drow, dcol=dcol,
+                                        param_type="K", seed=2)
 
-k3 = modpar6.generate_random_field((nrow, ncol), "exponential",
-                                    geom_mean=k[3], sill=1, nugget=0.0,
-                                    range_param=15000, drow=drow, dcol=dcol,
-                                    param_type="K", seed=3)
+    k3 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                        geom_mean=k[3], sill=1, nugget=0.0,
+                                        range_param=15000, drow=drow, dcol=dcol,
+                                        param_type="K", seed=3)
 
-k4 = modpar6.generate_random_field((nrow, ncol), "exponential",
-                                    geom_mean=k[4], sill=0.5, nugget=0.0,
-                                    range_param=15000, drow=drow, dcol=dcol,
-                                    param_type="K", seed=4)
+    k4 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                        geom_mean=k[4], sill=0.5, nugget=0.0,
+                                        range_param=15000, drow=drow, dcol=dcol,
+                                        param_type="K", seed=4)
 
-k_array = modpar6.stack_fields_to_3D([k0, k1, k2, k3, k4], nlay, nrow, ncol)
+    k_array = modpar6.stack_fields_to_3D([k0, k1, k2, k3, k4], nlay, nrow, ncol)
+
 # ------------------------------------------------------------------------------- #
 # --------------------------- BUILDING SIMULATION ------------------------------- #
 # ------------------------------------------------------------------------------- #
@@ -241,7 +245,7 @@ riv_spd1 = modbound6.create_riv_spd(
     river_width=1,
     riverbed_thickness=1,
     stage_type="proportion",
-    a=0.1,
+    a=0.20,
     b=1,
     conc=None)
 riv1 = flopy.mf6.ModflowGwfriv(gwf, 
@@ -337,7 +341,7 @@ if STEADY:
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                 f"{model_ws}/fig/cross_section_heads.png",
                                 boundary_keywords = boundary_keywords,
-                                flow_dir = True, surface = True, 
+                                flow_dir = False, surface = True, 
                                 show=False, save=True, figsize=(19, 4), layers = True, 
                                 title="Cross section - Steady state simulation")
 
@@ -539,7 +543,7 @@ if TRANSIENT:
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                         f"{model_ws}/fig/cross_section_heads_t.png",
                                         boundary_keywords = boundary_keywords,
-                                        flow_dir = True, surface = True, layers=True,
+                                        flow_dir = False, surface = True, layers=True,
                                         show=False, save=True, figsize = (19, 4),
                                         title=f"Cross section at time {time} days")
 

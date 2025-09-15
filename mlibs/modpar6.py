@@ -1,74 +1,120 @@
+# ==========================================================================================
+#  modpar6.py - Modular Parameter Utilities for MODFLOW 6 Model Generation and Visualization
+# ==========================================================================================
+#
+#  Author: MARIN RIVERA Carlos Felipe
+#  Organization: Bordeaux INP, Lab EPOC, Université de Bordeaux
+#  Project: Funded by the OneWater PEPR DEESAC Project 
+#
+#  DESCRIPTION:
+#  ------------
+#  As part of the ConfinedLab project, this module provides flexible utilities 
+#  for generating and visualizing spatially variable parameter fields for MODFLOW 6 groundwater models.
+#  It includes functions to create 2D and 3D correlated fields of hydraulic parameters by specifying a desired 
+#  spatial structure (e.g., isotropic or anisotropic) and statistical properties (e.g., mean, variance).
+#  correlation structure. 
+#
+#  MAIN FEATURES:
+#  --------------
+#  - Generate 2D and 3D random fields of hydraulic parameters (K, Sy, Ss) with specified variogram models.
+#  - Helper functions to get variogram parameters according to common summary statistics of prior data/knowledge
+
 import numpy as np
-from scipy.fft import fftn, ifftn, fftfreq
+from math import log, sqrt
+from scipy.stats import norm
 
 def moments_from_arithmetic_mean_variance(arith_mean, arith_var):
     """
     Helper function to convert between log-normal distribution parameters and 
     common summary stats (or knowledge) of hydraulic properties.
 
-    Given arithmetic mean (m) and variance (v) of a lognormal random variable X,
-    return geometric mean (GM = exp(mu)) and sill (variance of ln(X) : sigma^2).
+    Let K be a random variable following a log normal distribution with moments mu and sigma^2.
+
+    Given arithmetic mean (m=E[K]) and variance (v=var[K]) of of the variable K,
+    return the parameters of the log-normal distribution of K (mu and sigma^2).
 
     The aritmetic mean generally corresponds to the expected value of K in a heterogeneous aquifer.
     The variance could be expresed as percent variation relative to the mean, for example with a 
     coefficient of variation CV = sqrt(v)/m, then v = (CV*m)^2. 
     """
-    import numpy as np
-
     m = arith_mean
     v = arith_var
-    sigma2 = np.log(1.0 + v / m**2)
+    sigma2 = np.log(1.0 + v / m**2) #Can be used as an approximation of the sill for a variogram of Z=ln(K)
     mu = np.log(m) - 0.5 * sigma2
     geom_mean = np.exp(mu)
-    sill = sigma2
-    return geom_mean, sill, mu, sigma2
+    sigma = sqrt(sigma2)
 
-def moments_from_percentiles(x1, p1, x2, p2):
+    return geom_mean, mu, sigma2, sigma
+
+def moments_from_percentiles(k1, p1, k2, p2):
     """
     Helper function to convert between log-normal distribution parameters and 
     common summary stats (or knowledge) of hydraulic properties.
 
-    Given two percentiles (x1 at p1, x2 at p2) of a lognormal variable,
-    return geometric mean (exp(mu)) and sill (sigma^2).
-    p1 and p2 within (0,1), e.g. 0.05 and 0.95.
+    Let K be a random variable following a log normal distribution with moments mu and sigma^2.
+
+    Given two percentiles of the lognormal variable K, k1 at p1, k2 at p2, 
+    with p1 and p2 within (0,1) (e.g. 0.05 and 0.95) 
+    return the parameters of the log-normal distribution of K (mu and sigma^2).
+    
     Very often a given hydraulic property of an aquifer is known as a broad range.
     One could assume that this range represents the 90% confidence interval (5th and 95th percentiles)
     of a log-normal distribution, and use this function to estimate the distribution parameters.
     """
-    import numpy as np
-    from math import log, sqrt
-    from scipy.stats import norm
-
     z1 = norm.ppf(p1)
     z2 = norm.ppf(p2)
     if z2 == z1:
         raise ValueError("Percentiles must be distinct")
-    sigma = (np.log(x2) - np.log(x1)) / (z2 - z1)
-    mu = np.log(x1) - z1 * sigma
+    sigma = (np.log(k2) - np.log(k1)) / (z2 - z1) #Can be used as an approximation of the sill for a variogram of Z=ln(K)
+    mu = np.log(k1) - z1 * sigma
     geom_mean = np.exp(mu)
-    sill = sigma**2
-    return geom_mean, sill, mu, sigma
+    sigma2 = sigma**2
+    return geom_mean, mu, sigma2, sigma
+
+def moments_from_log_mean_variance(log_mean, log_var, log_base=10):
+    """
+    Helper function to convert between log-normal distribution parameters and 
+    common summary stats (or knowledge) of hydraulic properties.
+
+    Let K be a random variable following a log normal distribution with moments mu and sigma^2.
+    Let Y = log_b(K) be the logarithm in base b of K, which follows a normal distribution with mean mu_b and variance sigma^2_b.
+    
+    Given mu_b and sigma^2_b of Y = log_b(K), return the parameters of the log-normal distribution of K (mu and sigma^2).
+    """
+    mu_b = log_mean
+    sigma2_b = log_var
+    
+    mu = mu_b * log(log_base)
+    sigma2 = sigma2_b * ((log(log_base))**2) #Can be used as an approximation of the sill for a variogram of Z=ln(K)
+
+    geom_mean = np.exp(mu)
+    sigma = sqrt(sigma2)
+    return geom_mean, mu, sigma2, sigma
 
 def generate_random_field(shape, variogram_type="exponential",
                           geom_mean=1e-4, sill=1.0, nugget=0.0, range_param=10.0,
-                          drow=1.0, dcol=1.0, param_type="K", seed=None):
+                          drow=1.0, dcol=1.0, param_type="K", seed=None, log_base=None):
     """
-    Generate a 2D log-normal random field with spatial correlation using a spectral (FFT-based) simulation method.
+    Generate a 2D random field of a variable following a log-normal distribution with a desired spatial correlation structure
+    using a spectral (FFT-based) simulation method.
 
     This function creates a spatially correlated random field by filtering Gaussian white noise in the frequency domain
-    according to a specified variogram model (exponential, gaussian, or spherical). The resulting field is then
+    according to a specified variogram model spectrum (exponential, gaussian, or spherical). The resulting field is then
     transformed to a log-normal distribution, commonly used for simulating heterogeneous properties such as hydraulic conductivity.
 
     Args:
-        shape (tuple): Shape of the output field (nx, ny).
+        shape (tuple): Shape of the output field grid (nx, ny).
         variogram_type (str): Type of variogram/covariance model ("exponential", "gaussian", or "spherical").
-        geom_mean (float): Geometric mean of the log-normal field.
-        sill (float): Sill (variance) of the variogram. The log standard deviation of the field is the square root of the sill.
-        nugget (float): Nugget effect (variance at zero distance).
-        range_param (float): Correlation length (practical range) in METERS.
-        drow (float): Grid spacing in the row direction (meters).
-        dcol (float): Grid spacing in the column direction (meters).
+        geom_mean (float): Geometric mean of the log-normal field. Normally the most meaningful statistic for log-normal variables in hydrogeology.
+        sill (float): Sill of the variogram (variance parameter of the log-normal distribution). Should represent total variability.
+        nugget (float): Nugget effect (variance at zero distance). Represents unstructured variability.
+        range_param (float): Correlation length (practical range) in model units.
+        drow (float): Grid spacing in the row direction (model units).
+        dcol (float): Grid spacing in the column direction (model units).
         seed (int, optional): Random seed for reproducibility.
+        log_base (float, optional): Base of logarithm for the transformation of the randomly generated field. If None, sill and nugget 
+                                    are interpreted as variance of the natural logarithm. If log_base is specified (e.g., 10), sill and nugget
+                                    are interpreted as variance of the logarithm in that base, and converted accordingly.
 
     Returns:
         np.ndarray: 2D array of shape (nx, ny) representing the log-normal random field with spatial correlation.
@@ -76,7 +122,7 @@ def generate_random_field(shape, variogram_type="exponential",
     import numpy as np
     from scipy.fft import fftn, ifftn, fftfreq
 
-    np.random.seed(seed)
+    rng = np.random.default_rng(seed)
     nx, ny = shape
 
     # Frequency grid (in 1/meters)
@@ -95,20 +141,39 @@ def generate_random_field(shape, variogram_type="exponential",
         raise ValueError("Unsupported variogram type")
     spectrum[0, 0] = 1.0  # DC component
 
-    # White noise in Fourier space
-    noise = np.random.normal(size=(nx, ny)) + 1j*np.random.normal(size=(nx, ny))
+    # Generate white noise in space, FFT, filter
+    w = rng.normal(size=(nx,ny))
+    W = fftn(w)
 
-    # Apply spectral filter
-    Z_fft = noise * np.sqrt(spectrum)
+    # Inverse FFT to get correlated field, back to real space
+    Z = np.real(ifftn(W * np.sqrt(spectrum))) 
 
-    # Back to real space (Gaussian field, mean 0, std 1)
-    Z = np.real(ifftn(Z_fft))
+    # Standardize: Gaussian field, mean 0, std 1
     Z = (Z - np.mean(Z)) / np.std(Z)
 
-    # Apply sill (variance) and nugget
-    Z = (np.sqrt(sill) * Z) + (np.sqrt(nugget) * np.random.normal(size=(nx, ny)))
+    # Convert geom_mean and sill if log_base is specified
+    if log_base is not None:
+        logb = np.log(log_base)
+        mu = np.log(geom_mean)
+        sill = sill * (logb**2)
+        nugget = nugget * (logb**2)
+    else:
+        mu = np.log(geom_mean)
+        sill = sill
+        nugget = nugget
+
+    # Rescale to desired variance
+    # Structured variability
+    sigma = np.sqrt(sill - nugget)
+    Z = (sigma * Z)
+    # Unstructured variability (nugget)
+    Z = Z + (np.sqrt(nugget) * np.random.normal(size=(nx, ny)))
+
+    # Shift to the desired mean
+    Z = Z + mu #Now Z is a gaussian field with mean mu and variance sill + nugget
+     
     # Log-normal transformation
-    field = geom_mean * np.exp(Z)
+    field = np.exp(Z) # Now field follows a log-normal distribution with parameters mu and sigma2=Sill+nugget
 
     # Apply parameter-specific constraints
     if param_type.lower() == "sy":

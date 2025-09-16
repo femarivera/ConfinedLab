@@ -5,7 +5,8 @@
 # ------------------------------------------------------------------------ #
 # ----------------------------- IMPORT MODULES --------------------------- #
 # ------------------------------------------------------------------------ #
-
+import time
+start_time = time.time()
 import os
 import sys
 import numpy as np
@@ -53,8 +54,8 @@ model_name = 'DEESAC'
 transient_name = 'DEESACt'
 
 # Set model parameters
-k = np.array([250, 1e-4, 25, 1e-4, 25]) #Horizontal hydraulic conductivity in m/d
-R = np.array([8e-4, 0, 8e-4, 0, 8e-4]) #Arid/Semi-arid conditions rates in m/d
+k = np.array([250, 1e-5, 25, 1e-5, 25]) #Horizontal hydraulic conductivity in m/d
+R = np.array([8e-4, 8e-4, 8e-4, 8e-4, 8e-4]) #Arid/Semi-arid conditions rates in m/d
 sy = np.array([0.25, 0.25, 0.25, 0.25, 0.25]) # Specific yield for Unconfined cells (adimentional)
 ss = np.array([1e-5, 1e-5, 1e-5, 1e-5, 1e-5]) # type: ignore # Specific storage for Confined cells (m-1)
 q = -15 # Pumping rate in m3/d
@@ -137,7 +138,7 @@ if heterogeneity:
                                         param_type="K", seed=0)
 
     k1 = modpar6.generate_random_field((nrow, ncol), "exponential",
-                                        geom_mean=k[1], sill=1, nugget=0.0,
+                                        geom_mean=k[1], sill=0.5, nugget=0.0,
                                         range_param=15000, drow=drow, dcol=dcol,
                                         param_type="K", seed=1)
 
@@ -147,7 +148,7 @@ if heterogeneity:
                                         param_type="K", seed=2)
 
     k3 = modpar6.generate_random_field((nrow, ncol), "exponential",
-                                        geom_mean=k[3], sill=1, nugget=0.0,
+                                        geom_mean=k[3], sill=0.5, nugget=0.0,
                                         range_param=15000, drow=drow, dcol=dcol,
                                         param_type="K", seed=3)
 
@@ -257,13 +258,12 @@ riv1 = flopy.mf6.ModflowGwfriv(gwf,
 # Drain package
 drn_cells1 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 50, 110)
 drn_cells2 = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 150, 210)
-#drn_cells3 = [(3,0,j) for j in range(100, 110)] + [(1,0,j) for j in range(200, 210)]
-drn_cells = drn_cells1 + drn_cells2 #+ drn_cells3
+drn_cells = drn_cells1 + drn_cells2
 drn_spd = modbound6.create_drn_spd(
     drn_cells,
     ztop_array,
     thickness_array,
-    1000000*k,
+    100000*k,
     drow,
     drain_width=1,
     drainbed_thickness=1,
@@ -422,8 +422,8 @@ if TRANSIENT:
 
     # Update time discretization
     nper = 4
-    perlen = [0]*1 + [6000000]*1 + [60000]*1 + [6000000]*1
-    nstp = [1]*1 + [60]*1 +[300]*1 + [60]*1
+    perlen = [0]*1 + [7560000]*1 + [19800]*1 + [360000]*1
+    nstp = [1]*1 + [210]*1 +[660]*1 + [1000]*1
     tsmult = [1]*1 + [1]*1 + [1]*1 + [1]*1
     perioddata = list(zip(perlen, nstp, tsmult))
     tdis = sim.tdis
@@ -481,7 +481,7 @@ if TRANSIENT:
                               stress_period_data = wel_spd, 
                               filename = f"{transient_name}.wel")
     ts_data = [(0, 0),
-               (6000000 , q),
+               (7560000 , q),
                (20000000 , q)]
     wel.ts.initialize(
         filename="well_rates.ts",
@@ -525,7 +525,7 @@ if TRANSIENT:
         ts_num = 0
         sp_num = nper - 1 
         layer = 0
-        time = modtransient6.elapsed_time(perioddata, sp_num, ts_num)
+        elapsed_time = modtransient6.elapsed_time(perioddata, sp_num, ts_num)
 
         head = gwf.output.head().get_data(kstpkper=(ts_num, sp_num)) #kstpkper = time step and stress period.
         bud = gwf.output.budget()
@@ -545,36 +545,37 @@ if TRANSIENT:
                                         boundary_keywords = boundary_keywords,
                                         flow_dir = False, surface = True, layers=True,
                                         show=False, save=True, figsize = (19, 4),
-                                        title=f"Cross section at time {time} days")
+                                        title=f"Cross section at time {elapsed_time} days")
 
         modtransient6.plot_head_time_series("head_obs_t.csv", 
                                             gwf, 
                                             f"{model_ws}/fig/head_ts.png",
                                             show = False, 
                                             save = True, 
-                                            tau = None)
+                                            tau = None, 
+                                            time_units="years")
 
         #--------------------------------------- FLOW BUDGET ---------------------------------------------#
 
         file_path = f"{model_ws}/{transient_name}_budget.csv"
         modtransient6.process_csv_budget(file_path)  
 
-        modtransient6.plot_bud_sum_transient(file_path, time, 
+        modtransient6.plot_bud_sum_transient(file_path, elapsed_time, 
                                             f"{model_ws}/fig/bud_sum_t.png", 
                                             show = False, save=True)
 
         modtransient6.plot_bud_time_series(file_path,  
                                         f"{model_ws}/fig/budget_ts.png", 
-                                        show=False, save=True)
+                                        show=False, save=True, time_units="years")
 
         modtransient6.plot_water_to_wells(file_path, 
                                         f"{model_ws}/fig/water_to_wells.png", 
                                         show=False, 
-                                        save=True)
+                                        save=True, time_units="years")
 
         modtransient6.plot_net_flow_time_series(file_path,
                                                 f"{model_ws}/fig/net_flow_ts.png",
-                                                show=False, save=True, tau = None)
+                                                show=False, save=True, tau = None, time_units="years")
 
         #--------------------------------------- ZONE BUDGET ---------------------------------------------#
         zone_bud_path = f"{model_ws}/zonebud.csv"
@@ -583,8 +584,8 @@ if TRANSIENT:
                 2: "Aquitard",
                 3: "Confined Aquifer",
                 4: "Aquitard",
-                5: "Confined Aquifer"})
-        modtransient6.plot_water_to_wells_zonebud(zone_bud_path, fig_dir, show=False, save=True)
+                5: "Confined Aquifer"}, time_units="years")
+        modtransient6.plot_water_to_wells_zonebud(zone_bud_path, fig_dir, show=False, save=True, time_units="years")
 
         #--------------------------------------- TRANSIENT ANIMATION ---------------------------------------------#
 
@@ -595,3 +596,6 @@ if TRANSIENT:
                                         boundary_keywords = boundary_keywords,
                                         flow_dir = False, surface = True, layers=True,
                                         show=False, save=True, figsize = (19, 4), gif_start=0, gif_step=10)
+
+end_time = time.time()
+print(f"Total execution time: {end_time - start_time:.2f} seconds")

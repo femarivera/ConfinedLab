@@ -1,7 +1,26 @@
+##########################################################################################
+#  modtransient6.py - Modular Transient Utilities for MODFLOW 6 Model Time-Series Analysis
+##########################################################################################
+#
+#  Author: MARIN RIVERA Carlos Felipe
+#  Organization: Bordeaux INP, Lab EPOC, Université de Bordeaux
+#  Project: Funded by the OneWater PEPR DEESAC Project
+#
+#  DESCRIPTION:
+#  ------------
+#  As part of the ConfinedLab project, this module provides utilities for analyzing,
+#  processing, and visualizing transient (time-dependent) results from MODFLOW 6 groundwater models.
+#
+#  MAIN FEATURES:
+#  --------------
+#  - Extract and process time-series data (heads, flows, budgets) from MODFLOW 6 outputs.
+#  - Visualize temporal evolution of model heads and budget components.
+#  - Computes the proportions of water flow to wells from storage release and capture rates.
+#  - If zones are defined, plots and analyses water budgets for each zone.
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-import flopy
 import os
 
 def plot_head_time_series(head_file_path, 
@@ -11,22 +30,31 @@ def plot_head_time_series(head_file_path,
                           save=False,
                           figsize=(14, 12), 
                           fontsize=14, 
-                          tau=None):
+                          tau=None, 
+                          time_units='days'):
     """
-    Plots the head time series from MODFLOW output and generates the plot.
-    
+    Plot MODFLOW 6 simulated groundwater head time series for one or more observation points.
+
+    This function reads head observation data from a CSV file (as exported by Flopy or MODFLOW 6),
+    and generates a time series plot for each observation location. It supports optional display
+    and saving of the plot, automatic axis scaling, and marking equilibrium times based on a 
+    provided time constant (tau).
+
     Args:
         head_file_path (str): Path to the head observation CSV file.
         gwf (flopy.modflow.ModflowGwf): Flopy groundwater flow model object.
         output_path (str): Path to save the plot if save is True.
-        show (bool): Whether to display the plot. Defaults to False.
-        save (bool): Whether to save the plot. Defaults to False.
-        figsize (tuple): Size of the figure. Defaults to (14, 12).
-        fontsize (int): Font size for plot labels and titles.
-        tau (float or None): Time constant. If provided, vertical lines will be drawn at 3*tau and 5*tau. Defaults to None.
+        show (bool, optional): Whether to display the plot interactively. Defaults to False.
+        save (bool, optional): Whether to save the plot to disk. Defaults to False.
+        figsize (tuple, optional): Figure size in inches. Defaults to (14, 12).
+        fontsize (int, optional): Font size for plot labels and titles. Defaults to 14.
+        tau (float or None, optional): Time constant for equilibrium analysis. If provided, 
+            vertical lines are drawn at 3*tau (95% equilibrium) and 5*tau (99% equilibrium).
+        time_units (str, optional): "days" or "years". Units for time axis label. Defaults to 'days'.
+                                    Assumes model inputs in days by default.
 
-    Outputs:
-        A plot showing the head values over time.
+    Returns:
+        None. Displays and/or saves a plot showing groundwater head values over time for each observation.
     """
     import matplotlib.pyplot as plt
     import os
@@ -37,11 +65,20 @@ def plot_head_time_series(head_file_path,
     fig = plt.figure(figsize=figsize)
 
     # Plot head values over time
+    if time_units == 'days':
+        time_axis = csv["totim"]  # Assuming input time is in days
+        time_axis_label = 'Time [days]'
+    if time_units == 'years':
+        time_axis = csv["totim"] / 360  # Convert days to years
+        time_axis_label = 'Time [years]'
+    else:
+        raise ValueError("time_units must be 'days' or 'years'")
+
     for name in csv.dtype.names[1:]:  # Skip the first column (totim) as it's time
-        plt.plot(csv["totim"], csv[name], label=name)
-    
+        plt.plot(time_axis, csv[name], label=name)
+
     # Automatically adapt the y-axis limits based on the data range
-    plt.xlabel('Time [days]', fontsize=fontsize/1.2)
+    plt.xlabel(time_axis_label, fontsize=fontsize/1.2)
     plt.ylabel('Head [m]', fontsize=fontsize/1.2)
     plt.title('HEAD TIME SERIES', fontsize=fontsize)
     plt.legend(fontsize=fontsize/1.2)
@@ -51,8 +88,8 @@ def plot_head_time_series(head_file_path,
     if tau is not None:
         eq_95 = 3 * tau
         eq_99 = 5 * tau
-        plt.axvline(eq_95, color='red', linestyle='--', label=f'95% Equilibrium (3τ) at {eq_95} days')
-        plt.axvline(eq_99, color='blue', linestyle='--', label=f'99% Equilibrium (5τ) at {eq_99} days')
+        plt.axvline(eq_95, color='red', linestyle='--', label=f'95% Equilibrium (3τ) at {eq_95} {time_axis_label}')
+        plt.axvline(eq_99, color='blue', linestyle='--', label=f'99% Equilibrium (5τ) at {eq_99} {time_axis_label}')
         plt.legend(fontsize=fontsize/1.2, loc='upper right')
 
     # Adjust layout and show plot
@@ -71,15 +108,23 @@ def plot_head_time_series(head_file_path,
         fig.savefig(output_path, dpi=300)
         plt.close(fig)
 
-def time_step_lenght(stress_period_data):
+def time_step_length(stress_period_data):
     """
-    Generates time steps for each stress period based on the input data.
+    Compute the time step lengths for each stress period in a MODFLOW 6 simulation.
+
+    This function calculates the sequence of time step durations for each stress period,
+    accounting for both uniform and variable (TSMULT) time stepping. It supports MODFLOW's
+    time step multiplier logic, returning a list of lists where each inner list contains
+    the time step lengths for one stress period.
 
     Parameters:
-    - stress_period_data (list): List of tuples, where each tuple is (PERLEN, NSTP, TSMULT)
+        stress_period_data (list of tuples): Each tuple is (PERLEN, NSTP, TSMULT), where
+            PERLEN (float): Length of the stress period.
+            NSTP (int): Number of time steps in the stress period.
+            TSMULT (float): Time step multiplier (1 for uniform, >1 for variable).
 
     Returns:
-    - time_steps (list): List of lists, where each inner list contains the time steps for one stress period
+        time_steps (list of lists): Each inner list contains the time step lengths for one stress period.
     """
     time_steps = []
     
@@ -108,15 +153,22 @@ def time_step_lenght(stress_period_data):
 
 def generate_cumulative_time(stress_period_data):
     """
-    Generates cumulative time for each time step across all stress periods.
+    Generate the cumulative simulation time at each time step for a MODFLOW 6 transient model.
+
+    This function computes the cummulative elapsed time for all time steps across all stress periods,
+    using the MODFLOW 6 stress period definitions and time step multipliers. The result is a list of
+    cumulative times, useful for plotting or indexing time-dependent results.
 
     Parameters:
-    - stress_period_data (list): List of tuples, where each tuple is (PERLEN, NSTP, TSMULT)
+        stress_period_data (list of tuples): Each tuple is (PERLEN, NSTP, TSMULT), where
+            PERLEN (float): Length of the stress period.
+            NSTP (int): Number of time steps in the stress period.
+            TSMULT (float): Time step multiplier (1 for uniform, >1 for variable).
 
     Returns:
-    - cumulative_time (list): List of cumulative time at each time step across all stress periods
+        cumulative_time (list of float): Cumulative simulation time at each time step across all stress periods.
     """
-    time_steps = time_step_lenght(stress_period_data)  # Generate the time steps first
+    time_steps = time_step_length(stress_period_data)  # Generate the time steps first
     
     cumulative_time = []
     total_time = 0  # Initialize total cumulative time
@@ -130,18 +182,21 @@ def generate_cumulative_time(stress_period_data):
 
 def elapsed_time(stress_period_data, sp_num, ts_num):
     """
-    Calculates the elapsed time up to a specific stress period and time step.
+    Calculate the total elapsed simulation time up to a specific stress period and time step in MODFLOW 6.
 
     Parameters:
-    - stress_period_data (list): List of tuples, where each tuple is (PERLEN, NSTP, TSMULT)
-    - sp_num (int): Stress period number (0-based index)
-    - ts_num (int): Time step number (0-based index)
+        stress_period_data (list of tuples): Each tuple is (PERLEN, NSTP, TSMULT), where
+            PERLEN (float): Length of the stress period.
+            NSTP (int): Number of time steps in the stress period.
+            TSMULT (float): Time step multiplier (1 for uniform, >1 for variable).
+        sp_num (int): Stress period index (0-based).
+        ts_num (int): Time step index within the stress period (0-based).
 
     Returns:
-    - elapsed_time (float): Elapsed time up to the specified stress period and time step
+        elapsed_time (float): Total elapsed simulation time up to the specified stress period and time step.
     """
     # Generate time steps and cumulative time for all stress periods
-    time_steps = time_step_lenght(stress_period_data)
+    time_steps = time_step_length(stress_period_data)
     cumulative_time = generate_cumulative_time(stress_period_data)
     
     elapsed_time = 0
@@ -167,12 +222,157 @@ def total_sim_time(stress_period_data):
     cumulative_time = generate_cumulative_time(stress_period_data)
     return cumulative_time[-1]  # Return the total elapsed time after the last stress period
 
+def process_csv_budget(csv_path):
+    """
+    Processes a MODFLOW 6 budget CSV to compute water balance components and percentages. Recommended use before
+    plotting time series.
+
+    Args:
+        csv_path (str): Path to the budget CSV file.
+
+    Outputs:
+        Updates the CSV with new columns for induced recharge, captured discharge, storage release, capture rates, 
+        percentages, and net flows for each inflow/outflow pair.
+    """
+    # Load the CSV file
+    data = pd.read_csv(csv_path)
+    # Prepare data for time series
+    time_data = data["time"]
+
+    # Extract the natural inflow and outflow from the first time step (first row)
+    natural_inflow = data["TOTAL_IN"].iloc[0]
+    natural_outflow = data["TOTAL_OUT"].iloc[0]
+
+    # Identify columns
+    columns_in = [col for col in data.columns if col.endswith("_IN") and "STO" not in col and col != "TOTAL_IN"]
+    columns_well = [col for col in data.columns if "WEL" in col and "OUT" in col]
+    columns_out = [col for col in data.columns if col.endswith("_OUT") and "WEL" not in col and "STO" not in col and col != "TOTAL_OUT"]
+
+    # Storage components
+    columns_storage_in = [col for col in data.columns if "STO" in col and "IN" in col]
+    columns_storage_out = [col for col in data.columns if "STO" in col and "OUT" in col]
+
+    # Compute components
+    induced_recharge = data[columns_in].sum(axis=1) - natural_inflow
+    decreased_discharge = data[columns_out].sum(axis=1)
+    captured_discharge = natural_outflow - decreased_discharge
+    total_pumped = data[columns_well].sum(axis=1)
+    storage_in = data[columns_storage_in].sum(axis=1)
+    storage_out = data[columns_storage_out].sum(axis=1)
+    from_storage = storage_in - storage_out
+    storage_change_rate = storage_out - storage_in
+    capture = induced_recharge + captured_discharge
+    storage_change_integrals = np.array([np.trapz(storage_change_rate[:i+1], time_data[:i+1]) - 
+                                         np.trapz(storage_change_rate[:i], time_data[:i]) 
+                                         if i > 0 else 0 for i in range(len(storage_change_rate))])
+    storage_change = np.cumsum(storage_change_integrals)
+
+    # Compute percentages (handle division by zero)
+    induced_recharge_pct = (induced_recharge * 100 / total_pumped).where(total_pumped != 0, 0)
+    captured_discharge_pct = (captured_discharge * 100 / total_pumped).where(total_pumped != 0, 0)
+    from_storage_pct = (from_storage * 100 / total_pumped).where(total_pumped != 0, 0)
+    capture_pct = (capture * 100 / total_pumped).where(total_pumped != 0, 0)
+
+    # Add computed components and percentages to the DataFrame
+    data["Induced_Recharge"] = induced_recharge
+    data["Captured_Discharge"] = captured_discharge
+    data["Storage_Release"] = from_storage
+    data["Capture"] = capture
+    data["Storage_Change_rate"] = storage_change_rate
+    data["Storage_Change"] = storage_change
+    data["Induced_Recharge_Pct"] = induced_recharge_pct
+    data["Captured_Discharge_Pct"] = captured_discharge_pct
+    data["Storage_Release_Pct"] = from_storage_pct
+    data["Capture_Pct"] = capture_pct
+
+    # Compute net flow for each inflow/outflow pair
+    net_flow_columns = []
+    for col_in in columns_in:
+        base_name = col_in[:-3]  # Remove the "_IN" suffix
+        matching_out_col = base_name + "_OUT"
+        if matching_out_col in columns_out:
+            net_flow_col_name = base_name + "_Net_Flow"
+            data[net_flow_col_name] = data[col_in] - data[matching_out_col]
+            net_flow_columns.append(net_flow_col_name)
+
+    # Overwrite the original file with the updated DataFrame
+    data.to_csv(csv_path, index=False)
+
+def process_csv_zonebudget(csv_path):
+    """
+    Processes a MODFLOW 6 zonebudget CSV to compute water balance components and percentages.Recommended use before
+    plotting time series.
+
+    Args:
+        csv_path (str): Path to the zone budget CSV file.
+
+    Outputs:
+        Updates the CSV with new columns for induced recharge, captured discharge, storage release, capture rates, 
+        percentages, and net flows for each inflow/outflow pair, for each zone.
+    """
+    # Load the CSV file
+    df = pd.read_csv(csv_path)
+
+    # Filter inflow, outflow, and storage columns
+    inflow_columns = [
+        col for col in df.columns if 
+        ("IN" in col or "FROM" in col) and 
+        "STO" not in col and "DATA" not in col and "ZONE 0" not in col
+    ]
+    outflow_columns = [
+        col for col in df.columns if 
+        ("OUT" in col or "TO" in col) and 
+        "STO" not in col and "DATA" not in col and "ZONE 0" not in col and "WEL" not in col
+    ]
+    storage_out_columns = [
+        col for col in df.columns if "STO" in col and "OUT" in col
+    ]
+    storage_in_columns = [
+        col for col in df.columns if "STO" in col and "IN" in col
+    ]
+    pumped_columns = [
+        col for col in df.columns if "WEL" in col and "OUT" in col
+    ]
+
+    # Calculate natural inflow and outflow at time zero
+    natural_inflow = df.loc[df['totim'] == 0, inflow_columns].sum(axis=1).values[0]
+    natural_outflow = df.loc[df['totim'] == 0, outflow_columns].sum(axis=1).values[0]
+
+    # Compute components using vectorized operations
+    induced_recharge = df[inflow_columns].sum(axis=1) - natural_inflow
+    captured_discharge = natural_outflow - df[outflow_columns].sum(axis=1)
+    storage_in = df[storage_in_columns].sum(axis=1)
+    storage_out = df[storage_out_columns].sum(axis=1)
+    from_storage = storage_in - storage_out
+    total_pumped = df[pumped_columns].sum(axis=1)
+    capture = induced_recharge + captured_discharge
+
+    # Compute percentages (handle division by zero)
+    induced_recharge_pct = (induced_recharge * 100 / total_pumped).where(total_pumped != 0, 0)
+    captured_discharge_pct = (captured_discharge * 100 / total_pumped).where(total_pumped != 0, 0)
+    from_storage_pct = (from_storage * 100 / total_pumped).where(total_pumped != 0, 0)
+    capture_pct = (capture * 100 / total_pumped).where(total_pumped != 0, 0)
+
+    # Add computed components and percentages to the DataFrame
+    df["Induced_Recharge"] = induced_recharge
+    df["Captured_Discharge"] = captured_discharge
+    df["From_Storage"] = from_storage
+    df["Capture"] = capture
+    df["Induced_Recharge_Pct"] = induced_recharge_pct
+    df["Captured_Discharge_Pct"] = captured_discharge_pct
+    df["From_Storage_Pct"] = from_storage_pct
+    df["Capture_Pct"] = capture_pct
+
+    # Overwrite the CSV file
+    df.to_csv(csv_path, index=False)
+
 def plot_bud_time_series(file_path, 
                          output_path, 
                          show=False, 
                          save=False,
                          figsize=(14, 12), 
-                         fontsize=14):
+                         fontsize=14,
+                         time_units='days'):
     """
     Creates time series plots for inflow, outflow, storage components, and change in storage over time
     based on a budget summary CSV output of a MODFLOW 6 Transient simulation.
@@ -180,18 +380,20 @@ def plot_bud_time_series(file_path,
     Args:
         file_path (str): Path to the budget CSV file. The file should have a column called 'time' and 
                          columns ending in _IN, _OUT, containing TOTAL_IN, TOTAL_OUT, and columns with STO.
-        output_dir (str): Directory where the plot will be saved if SAVE is True.
-        output_name (str): Name of the output file. Defaults to "budget_ts.png".
-        SHOW (bool): Whether to display the plot. Defaults to False.
-        SAVE (bool): Whether to save the plot. Defaults to False.
-        fontsize (int): Font size for all text elements in the plots. Defaults to 12.
+        output_path (str): Path to save the plot if save is True.
+        show (bool): Display the plot interactively.
+        save (bool): Save the plot to disk.
+        figsize (tuple): Figure size in inches.
+        fontsize (int): Font size for plot labels.
+        time_units (str): "days" or "years". Units for time axis label. Defaults to 'days'. 
+                        Assumes model inputs in days by default.
 
     Outputs:
-        A figure with four line plots showing:
-        1. Inflow components over time (excluding STO columns).
-        2. Outflow components over time (excluding STO columns).
-        3. Total In and Total Out over time.
-        4. Change in Storage over time.
+        A figure with four subplots showing:
+        1. Inflow components over time.
+        2. Outflow components over time.
+        3. Total Inflows and Total Outflows over time.
+        4. Cumulative change in Storage over time.
     """
     import pandas as pd
     import matplotlib.pyplot as plt
@@ -199,7 +401,8 @@ def plot_bud_time_series(file_path,
 
     # Load the CSV file
     data = pd.read_csv(file_path)
-
+    
+    # Function to simplify column names for legend
     def simplify_name(name):
         # Extract content inside parentheses, if present
         if '(' in name and ')' in name:
@@ -220,8 +423,15 @@ def plot_bud_time_series(file_path,
     columns_storage_out = [col for col in data.columns if "STO" in col and "OUT" in col]
 
     # Prepare data for time series
-    time_data = data["time"]
-
+    if time_units == 'days':
+        time_data = data["time"]  # Assuming input time is in days
+        time_axis_label = 'Time [days]'
+    elif time_units == 'years':
+        time_data = data["time"] / 360  # Convert days to years
+        time_axis_label = 'Time [years]'
+    else:
+        raise ValueError("time_units must be 'days' or 'years'")
+    
     # Create a figure with subplots
     fig, axs = plt.subplots(2, 2, figsize=figsize)
 
@@ -229,7 +439,7 @@ def plot_bud_time_series(file_path,
     for col in columns_in:
         axs[0, 0].plot(time_data, data[col], label=simplify_name(col))
     axs[0, 0].set_title("INFLOW COMPONENTS", fontsize=fontsize)
-    axs[0, 0].set_xlabel("Time [days]", fontsize=fontsize/1.2)
+    axs[0, 0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
     axs[0, 0].set_ylabel("m³/day", fontsize=fontsize/1.2)
     axs[0, 0].legend(fontsize=fontsize/1.2)
     axs[0, 0].grid()
@@ -238,7 +448,7 @@ def plot_bud_time_series(file_path,
     for col in columns_out:
         axs[0, 1].plot(time_data, data[col], label=simplify_name(col))
     axs[0, 1].set_title("OUTFLOW COMPONENTS", fontsize=fontsize)
-    axs[0, 1].set_xlabel("Time [days]", fontsize=fontsize/1.2)
+    axs[0, 1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
     axs[0, 1].set_ylabel("m³/day", fontsize=fontsize/1.2)
     axs[0, 1].legend(fontsize=fontsize/1.2)
     axs[0, 1].grid()
@@ -247,7 +457,7 @@ def plot_bud_time_series(file_path,
     axs[1, 0].plot(time_data, data_total_in, label="TOTAL INFLOW", color="blue")
     axs[1, 0].plot(time_data, data_total_out, label="TOTAL OUTFLOW", color="red")
     axs[1, 0].set_title("TOTAL FLOWS", fontsize=fontsize)
-    axs[1, 0].set_xlabel("Time [days]", fontsize=fontsize/1.2)
+    axs[1, 0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
     axs[1, 0].set_ylabel("m³/day", fontsize=fontsize/1.2)
     axs[1, 0].legend(fontsize=fontsize/1.2)
     axs[1, 0].grid()
@@ -262,7 +472,7 @@ def plot_bud_time_series(file_path,
     storage_change = np.cumsum(storage_change_integrals)
     axs[1, 1].plot(time_data, storage_change, label="STORAGE CHANGE", color="green")
     axs[1, 1].set_title("CHANGE IN STORAGE", fontsize=fontsize)
-    axs[1, 1].set_xlabel("Time [days]", fontsize=fontsize/1.2)
+    axs[1, 1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
     axs[1, 1].set_ylabel("m³", fontsize=fontsize/1.2)
     axs[1, 1].legend(fontsize=fontsize/1.2)
     axs[1, 1].grid()
@@ -281,27 +491,142 @@ def plot_bud_time_series(file_path,
         fig.savefig(output_path, dpi=300)
         plt.close(fig)
 
+def plot_net_flow_time_series(file_path, 
+                              output_path, 
+                              show=False, 
+                              save=False, 
+                              figsize=(14, 12), 
+                              fontsize=16, 
+                              tau=None, 
+                              time_units='days'):
+    """
+    Creates time series plots for the difference between inflow and outflow components.
+    Positive values represent net inflows, and negative values represent net outflows.
+
+    Args:
+        file_path (str): Path to the budget CSV file. The file should have a column called 'time' and 
+                         columns ending in _IN, _OUT.
+        output_path (str): Path to save the plot if save is True.
+        show (bool): Whether to display the plot. Defaults to False.
+        save (bool): Whether to save the plot. Defaults to False.
+        figsize (tuple): Size of the figure. Defaults to (14, 12).
+        fontsize (int): Font size for plot labels and titles.
+        tau (float or None): Time constant. If provided, vertical lines will be drawn at 3*tau and 5*tau. Defaults to None.
+        time_units (str): "days" or "years". Units for time axis label. Defaults to 'days'.
+                         Assumes model inputs in days by default.
+
+    Outputs:
+        A figure with time series plots showing the difference between inflow and outflow
+        for each component.
+    """
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import os
+
+    # Load the CSV file
+    data = pd.read_csv(file_path)
+
+    def simplify_name(name):
+        # Extract content inside parentheses, if present
+        if '(' in name and ')' in name:
+            simplified = name.split('(')[1].split(')')[0].strip()  # Extract text inside parentheses
+        else:
+            simplified = name.strip()  # Fallback if no parentheses are found
+        return simplified
+
+    # Identify matching inflow and outflow columns
+    columns_in = [col for col in data.columns if col.endswith("_IN") and "STO" not in col and col != "TOTAL_IN"]
+    columns_out = [col.replace("_IN", "_OUT") for col in columns_in if col.replace("_IN", "_OUT") in data.columns]
+
+    # Prepare time data
+    if time_units == 'days':
+        time_data = data["time"]  # Assuming input time is in days
+        time_axis_label = 'Time [days]'
+    elif time_units == 'years':
+        time_data = data["time"] / 360  # Convert days to years
+        time_axis_label = 'Time [years]'
+    else:
+        raise ValueError("time_units must be 'days' or 'years'")
+
+    # Create a figure
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Plot net flux for each component
+    legend_labels = []
+    for col_in, col_out in zip(columns_in, columns_out):
+        net_flux = data[col_in] - data[col_out]
+        label = simplify_name(col_in)
+        ax.plot(time_data, net_flux, label=label)
+        legend_labels.append(label)
+
+    # Sort legend labels alphabetically
+    handles, labels = ax.get_legend_handles_labels()
+    sorted_handles_labels = sorted(zip(handles, labels), key=lambda x: x[1])
+    handles, labels = zip(*sorted_handles_labels)
+    ax.legend(handles, labels, fontsize=fontsize / 1.2)
+
+    # Horizontal line at zero for the X-axis
+    ax.axhline(0, color='black', linewidth=0.8, linestyle='--')
+
+    ax.set_title("Net Flow (Inflow - Outflow) Components", fontsize=fontsize)
+    ax.set_xlabel(time_axis_label, fontsize=fontsize / 1.2)
+    ax.set_ylabel("Net Flow [m³/day]", fontsize=fontsize / 1.2)
+    ax.grid()
+
+    # Plot equilibrium lines if tau is provided
+    if tau is not None:
+        eq_95 = 3 * tau
+        eq_99 = 5 * tau
+        ax.axvline(eq_95, color='red', linestyle='--', label=f'95% Equilibrium (3τ) at {eq_95} {time_axis_label}')
+        ax.axvline(eq_99, color='blue', linestyle='--', label=f'99% Equilibrium (5τ) at {eq_99} {time_axis_label}')
+        ax.legend(fontsize=fontsize / 1.2, loc='upper right')
+
+    # Adjust layout and show plot
+    plt.tight_layout()
+
+    if show:
+        plt.show()
+
+    # Save plot
+    if save:
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        fig.savefig(output_path, dpi=300)
+        plt.close(fig)
+
 def plot_water_to_wells(file_path, 
                         output_path, 
                         show = False,
                         save = False,
                         figsize = (14, 12),
-                        fontsize = 14):
+                        fontsize = 14, 
+                        time_units='days'):
     """
     Plots various water budget components related to well abstraction:
     
     The first time step in the transient simulation should be a steady state stress period
     to evaluate the effects of pumping starting from natural/baseline conditions.
 
-    - Induced Recharge: Inflow components (excluding recharge).
+    - Induced Recharge: Inflow components (excluding recharge) 
+      (corresponds to the induced inflows from flow boundaries like RIV, GHB, etc.).
     - Decreased Discharge: Outflow components (excluding well abstractions)
       (corresponds to the captured/intercepted discharge).
-    - From Storage: Change in storage.
+    - From Storage: Storage release sourcing well abstraction.
     - Capture: Sum of Induced Recharge and Decreased Discharge.
     - Total Pumped: Sum of all well abstractions.
     
     Args:
         file_path (str): Path to the budget CSV file containing water budget data.
+        output_path (str): Path to save the plot if save is True.
+        show (bool): Whether to display the plot. Defaults to False.
+        save (bool): Whether to save the plot. Defaults to False.  
+        figsize (tuple): Size of the figure. Defaults to (14, 12).
+        fontsize (int): Font size for plot labels and titles. Defaults to 14.
+        time_units (str): "days" or "years". Units for time axis label. Defaults to 'days'.
+                         Assumes model inputs in days by default.
     
     Outputs:
         A figure with four subplots:
@@ -328,7 +653,14 @@ def plot_water_to_wells(file_path,
     columns_storage_out = [col for col in data.columns if "STO" in col and "OUT" in col]
 
     # Prepare time data
-    time_data = data["time"]
+    if time_units == 'days':
+        time_data = data["time"]  # Assuming input time is in days
+        time_axis_label = 'Time [days]'
+    elif time_units == 'years':
+        time_data = data["time"] / 360  # Convert days to years
+        time_axis_label = 'Time [years]'
+    else:
+        raise ValueError("time_units must be 'days' or 'years'")
 
     # Compute components
     induced_recharge = data[columns_in].sum(axis=1) - natural_inflow
@@ -354,7 +686,7 @@ def plot_water_to_wells(file_path,
     axs[0, 0].plot(time_data, captured_discharge, label="Captured outflows", color = "red")
     axs[0, 0].plot(time_data, from_storage, label="Storage release", color = "green")
     axs[0, 0].set_title("WATER TO WELLS", fontsize=fontsize)
-    axs[0, 0].set_xlabel("Time [Days]", fontsize=fontsize/1.2)
+    axs[0, 0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
     axs[0, 0].set_ylabel("m³/day", fontsize=fontsize/1.2)
     axs[0, 0].legend(fontsize=fontsize/1.2)
     axs[0, 0].grid()
@@ -363,7 +695,7 @@ def plot_water_to_wells(file_path,
     axs[0, 1].plot(time_data, capture, label="Capture", color="purple")
     axs[0, 1].plot(time_data, from_storage, label="Storage release", color="green")
     axs[0, 1].set_title("CAPTURE AND STORAGE", fontsize=fontsize)
-    axs[0, 1].set_xlabel("Time [Days]", fontsize=fontsize/1.2)
+    axs[0, 1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
     axs[0, 1].set_ylabel("m³/day",fontsize=fontsize/1.2)
     axs[0, 1].legend(fontsize=fontsize/1.2)
     axs[0, 1].grid()
@@ -373,7 +705,7 @@ def plot_water_to_wells(file_path,
     axs[1, 0].plot(time_data, captured_discharge_pct, label="Captured outflows %", color="red")
     axs[1, 0].plot(time_data, from_storage_pct, label="Storage release %", color="green")
     axs[1, 0].set_title("WATER TO WELLS PERCENTAGE", fontsize=fontsize)
-    axs[1, 0].set_xlabel("Time [Days]", fontsize=fontsize/1.2)
+    axs[1, 0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
     axs[1, 0].set_ylabel("Percentage (%)",fontsize=fontsize/1.2)
     axs[1, 0].legend(fontsize=fontsize/1.2)
     axs[1, 0].grid()
@@ -382,7 +714,7 @@ def plot_water_to_wells(file_path,
     axs[1, 1].plot(time_data, capture_pct, label="Capture %", color="purple")
     axs[1, 1].plot(time_data, from_storage_pct, label="Storage release %", color="green")
     axs[1, 1].set_title("CAPTURE AND STORAGE PERCENTAGE", fontsize=fontsize)
-    axs[1, 1].set_xlabel("Time [Days]", fontsize=fontsize/1.2)
+    axs[1, 1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
     axs[1, 1].set_ylabel("Percentage (%)",fontsize=fontsize/1.2)
     axs[1, 1].legend(fontsize=fontsize/1.2)
     axs[1, 1].grid()
@@ -410,15 +742,17 @@ def plot_bud_sum_transient(file_path,
                            show = False, 
                            save = False):
     """
-    Creates bar plots for inflow, outflow, and total flows based on a budget summary CSV file
-    output of a MODFLOW 6 Steady state simulation.
-    
+    Creates bar plots for inflow, outflow, and total flows from a MODFLOW 6 budget summary CSV at a specified time.
+
     Args:
-        file_path (str): Path to the budget CSV file. The file should have one row, 
-                         with columns ending in _IN, _OUT, and containing TOTAL_IN and TOTAL_OUT.
-    
+        file_path (str): Path to the budget CSV file (one row per time step).
+        time (float): Simulation time to plot. Corresponds to the elapsed time in model units.
+        output_path (str): Path to save the figure if save is True.
+        show (bool): Display the plot interactively.
+        save (bool): Save the plot to disk.
+
     Outputs:
-        Saves a single figure with three subplots showing inflow, outflow, and total flows.
+        A figure with subplots for inflow, outflow, total flows, and change in storage.
     """
     import pandas as pd
     import matplotlib.pyplot as plt
@@ -528,18 +862,37 @@ def plot_zone_budget(csv_path,
                      save = False, 
                      figsize = (14, 12),
                      fontsize = 14,
-                     zone_descriptions = None):
+                     zone_descriptions = None,
+                     time_units = 'days'):
     """
-    Reads a CSV file containing budget data and plots inflows, outflows, and inter-zone flows for each zone.
-    
-    Parameters:
-        csv_path (str): Path to the CSV file.
+    Plots time series of inflows, outflows, total flows, and storage change for each zone from a budget CSV.
+
+    Args:
+        csv_path (str): Path to the zone budget CSV file.
+        output_dir (str): Directory to save figures if save is True.
+        show (bool): Display plots interactively.
+        save (bool): Save plots to disk.
+        figsize (tuple): Figure size in inches.
+        fontsize (int): Font size for plot labels.
+        zone_descriptions (dict or None): Optional mapping of zone numbers to descriptions.
+        time_units (str): "days" or "years". Units for time axis label. Defaults to 'days'.
+
+    Outputs:
+        Figures for each zone showing inflow, outflow, total flows, storage change, and inter-zone transfers.
     """
     # Load the CSV file
     df = pd.read_csv(csv_path)
-        # Prepare data for time series
-    time_data = df["totim"]
-
+    
+    # Prepare data for time series
+    if time_units == 'days':
+        time_data = df["totim"]  # Assuming input time is in days
+        time_axis_label = 'Time [days]'
+    elif time_units == 'years':
+        time_data = df["totim"] / 360  # Convert days to years
+        time_axis_label = 'Time [years]'
+    else:
+        raise ValueError("time_units must be 'days' or 'years'")
+    
     def simplify_name(name):
         # Extract content inside parentheses, if present
         if '(' in name and ')' in name:
@@ -597,7 +950,7 @@ def plot_zone_budget(csv_path,
         for col in zone_inflow_columns:
             ax[0,0].plot(zone_data['totim'], zone_data[col], label=simplify_name(col))
         ax[0,0].set_title(f'ZONE {zone} INFLOW COMPONENTS', fontsize=fontsize)
-        ax[0,0].set_xlabel('Time [days]', fontsize=fontsize/1.2)
+        ax[0,0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         ax[0,0].set_ylabel('Flow [m³/day]', fontsize=fontsize/1.2)
         ax[0,0].legend(fontsize=fontsize/1.2)
         ax[0,0].grid()
@@ -606,7 +959,7 @@ def plot_zone_budget(csv_path,
         for col in zone_outflow_columns:
             ax[0,1].plot(zone_data['totim'], zone_data[col], label=simplify_name(col))
         ax[0,1].set_title(f'ZONE {zone} OUTFLOWS', fontsize=fontsize)
-        ax[0,1].set_xlabel('Time [days]', fontsize=fontsize/1.2)
+        ax[0,1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         ax[0,1].set_ylabel('Flow [m³/day]', fontsize=fontsize/1.2)
         ax[0,1].legend(fontsize=fontsize/1.2)
         ax[0,1].grid()
@@ -615,15 +968,15 @@ def plot_zone_budget(csv_path,
         ax[1,0].plot(zone_data['totim'], data_in, label="TOTAL INFLOWS")
         ax[1,0].plot(zone_data['totim'], data_out, label="TOTAL OUTFLOWS")
         ax[1,0].set_title(f'ZONE {zone} TOTAL FLOWS', fontsize=fontsize)
-        ax[1,0].set_xlabel('Time [days]', fontsize=fontsize/1.2)
-        ax[1,0].set_ylabel('Flow [m3/day]', fontsize=fontsize/1.2)
+        ax[1,0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
+        ax[1,0].set_ylabel('Flow [m³/day]', fontsize=fontsize/1.2)
         ax[1,0].legend(fontsize=fontsize/1.2)
         ax[1,0].grid()
         
         # Plot change in storage
         ax[1,1].plot(zone_data['totim'], storage_change, label="CHANGE IN STORAGE")
         ax[1,1].set_title(f'ZONE {zone} CHANGE IN STORAGE', fontsize=fontsize)
-        ax[1,1].set_xlabel('Time [days]', fontsize=fontsize/1.2)
+        ax[1,1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         ax[1,1].set_ylabel('Flow [m³/day]', fontsize=fontsize/1.2)
         ax[1,1].legend(fontsize=fontsize/1.2)
         ax[1,1].grid()
@@ -676,12 +1029,22 @@ def plot_water_to_wells_zonebud(csv_path,
                                 output_dir, 
                                 show = False, 
                                 save = False,
-                                fontsize = 14):
+                                fontsize = 14, 
+                                time_units = 'days'):
     """
-    Reads a CSV file containing budget data and creates advanced visualizations for each zone.
+    Plots water budget components and sources of water to wells for each zone from a zone budget CSV.
 
-    Parameters:
-        csv_path (str): Path to the CSV file.
+    Args:
+        csv_path (str): Path to the zone budget CSV file.
+        output_dir (str): Directory to save figures if save is True.
+        show (bool): Display plots interactively.
+        save (bool): Save plots to disk.
+        fontsize (int): Font size for plot labels.
+        time_units (str): "days" or "years". Units for time axis label. Defaults to 'days'.
+                         Assumes model inputs in days by default.
+
+    Outputs:
+        Figures for each zone showing storage release, induced recharge, captured discharge, capture, and their percentages.
     """
     # Load the CSV file
     df = pd.read_csv(csv_path)
@@ -714,6 +1077,15 @@ def plot_water_to_wells_zonebud(csv_path,
     for zone in zones:
         zone_data = df[df['zone'] == zone]
 
+        if time_units == 'days':
+            time_data = zone_data["totim"]  # Assuming input time is in days
+            time_axis_label = 'Time [days]'
+        elif time_units == 'years':
+            time_data = zone_data["totim"] / 360  # Convert days to years
+            time_axis_label = 'Time [years]'
+        else:
+            raise ValueError("time_units must be 'days' or 'years'")
+
         # Calculate natural inflow and outflow at time zero
         #natural_inflow = zone_data.loc[zone_data['totim'] == 0, inflow_columns].sum(axis=1).values[0]
         #natural_outflow = zone_data.loc[zone_data['totim'] == 0, outflow_columns].sum(axis=1).values[0]
@@ -740,39 +1112,39 @@ def plot_water_to_wells_zonebud(csv_path,
         fig.suptitle(f'Zone {zone} Analysis', fontsize=16)
 
         # Subplot 1: From Storage, Induced Recharge, Captured Discharge
-        axs[0, 0].plot(zone_data['totim'], from_storage, label='Storage release', color='green')
-        axs[0, 0].plot(zone_data['totim'], induced_recharge, label='Induced Inflows', color='blue')
-        axs[0, 0].plot(zone_data['totim'], captured_discharge, label='Captured Outflows', color='red')
+        axs[0, 0].plot(time_data, from_storage, label='Storage release', color='green')
+        axs[0, 0].plot(time_data, induced_recharge, label='Induced Inflows', color='blue')
+        axs[0, 0].plot(time_data, captured_discharge, label='Captured Outflows', color='red')
         axs[0, 0].set_title('WATER TO WELLS', fontsize=fontsize)
-        axs[0, 0].set_xlabel('Time (days)', fontsize=fontsize/1.2)
+        axs[0, 0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         axs[0, 0].set_ylabel('Flow (m³/day)', fontsize=fontsize/1.2)
         axs[0, 0].legend(fontsize=fontsize/1.2)
         axs[0, 0].grid()
 
         # Subplot 2: From Storage and Capture
-        axs[0, 1].plot(zone_data['totim'], from_storage, label='Storage release', color='green')
-        axs[0, 1].plot(zone_data['totim'], capture, label='Capture', color='purple')
+        axs[0, 1].plot(time_data, from_storage, label='Storage release', color='green')
+        axs[0, 1].plot(time_data, capture, label='Capture', color='purple')
         axs[0, 1].set_title('CAPTURE AND STORAGE', fontsize=fontsize)
-        axs[0, 1].set_xlabel('Time (days)', fontsize=fontsize/1.2)
+        axs[0, 1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         axs[0, 1].set_ylabel('Flow (m³/day)', fontsize=fontsize/1.2)
         axs[0, 1].legend(fontsize=fontsize/1.2)
         axs[0, 1].grid()
 
         # Subplot 3: Percentages of Total Pumped (Flows)
-        axs[1, 0].plot(zone_data['totim'], from_storage_pct, label='From Storage (%)', color='purple')
-        axs[1, 0].plot(zone_data['totim'], induced_recharge_pct, label='Induced Recharge (%)', color='blue')
-        axs[1, 0].plot(zone_data['totim'], captured_discharge_pct, label='Captured Discharge (%)', color='green')
+        axs[1, 0].plot(time_data, from_storage_pct, label='From Storage (%)', color='purple')
+        axs[1, 0].plot(time_data, induced_recharge_pct, label='Induced Recharge (%)', color='blue')
+        axs[1, 0].plot(time_data, captured_discharge_pct, label='Captured Discharge (%)', color='green')
         axs[1, 0].set_title('WATER TO WELLS PERCENTAGE', fontsize=fontsize)
-        axs[1, 0].set_xlabel('Time (days)' , fontsize=fontsize/1.2)
+        axs[1, 0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         axs[1, 0].set_ylabel('Percent (%)', fontsize=fontsize/1.2)
         axs[1, 0].legend(fontsize=fontsize/1.2)
         axs[1, 0].grid()
 
         # Subplot 4: Percentages of Total Pumped (From Storage and Capture)
-        axs[1, 1].plot(zone_data['totim'], from_storage_pct, label='From Storage (%)', color='purple')
-        axs[1, 1].plot(zone_data['totim'], capture_pct, label='Capture (%)', color='orange')
+        axs[1, 1].plot(time_data, from_storage_pct, label='From Storage (%)', color='purple')
+        axs[1, 1].plot(time_data, capture_pct, label='Capture (%)', color='orange')
         axs[1, 1].set_title('CAPTURE AND STORAGE PERCENTAGE', fontsize=fontsize)
-        axs[1, 1].set_xlabel('Time (days)', fontsize=fontsize/1.2)
+        axs[1, 1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         axs[1, 1].set_ylabel('Percent (%)', fontsize=fontsize/1.2)
         axs[1, 1].legend(fontsize=fontsize/1.2)
         axs[1, 1].grid()
@@ -791,139 +1163,176 @@ def plot_water_to_wells_zonebud(csv_path,
             fig.savefig(image_path, dpi=300)
             plt.close(fig) 
 
-def process_csv_budget(file_path):
+def plot_storage_change_rate(file_path, 
+                            output_path, 
+                            show=False, 
+                            save=False, 
+                            figsize=(14, 12), 
+                            fontsize=14,
+                            xlim=None,  # Tuple for x-axis limits
+                            ylim=None,
+                            time_units="days"):  # Tuple for y-axis limits
+    """
+    Creates a time series plot of the storage change rate.
+
+    Args:
+        file_path (str): Path to the budget CSV file. The file should have a column called 'time' and 
+                         columns for storage components after being processed with process_csv_budget.
+        output_path (str): Path to save the plot if save is True.
+        show (bool): Whether to display the plot. Defaults to False.
+        save (bool): Whether to save the plot. Defaults to False.
+        figsize (tuple): Size of the figure. Defaults to (14, 12).
+        fontsize (int): Font size for plot labels and titles.
+        xlim (tuple or None): Limits for x-axis (e.g., (0, 500)). If None, default matplotlib behavior.
+        ylim (tuple or None): Limits for y-axis (e.g., (-10, 10)). If None, default matplotlib behavior.
+        time_units (str): "days" or "years". Units for time axis label. Defaults to 'days'. Assumes model inputs in days by default.
+
+    Outputs:
+        A figure with the storage change rate time series.
+    """
     import pandas as pd
-    import numpy as np  
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import os
+
     # Load the CSV file
     data = pd.read_csv(file_path)
-    # Prepare data for time series
-    time_data = data["time"]
 
-    # Extract the natural inflow and outflow from the first time step (first row)
-    natural_inflow = data["TOTAL_IN"].iloc[0]
-    natural_outflow = data["TOTAL_OUT"].iloc[0]
+    def simplify_name(name):
+        if '(' in name and ')' in name:
+            return name.split('(')[1].split(')')[0].strip()
+        return name.strip()
 
-    # Identify columns
-    columns_in = [col for col in data.columns if col.endswith("_IN") and "STO" not in col and col != "TOTAL_IN"]
-    columns_well = [col for col in data.columns if "WEL" in col and "OUT" in col]
-    columns_out = [col for col in data.columns if col.endswith("_OUT") and "WEL" not in col and "STO" not in col and col != "TOTAL_OUT"]
-
-    # Storage components
+    # Identify columns for storage components
     columns_storage_in = [col for col in data.columns if "STO" in col and "IN" in col]
     columns_storage_out = [col for col in data.columns if "STO" in col and "OUT" in col]
 
-    # Compute components
-    induced_recharge = data[columns_in].sum(axis=1) - natural_inflow
-    decreased_discharge = data[columns_out].sum(axis=1)
-    captured_discharge = natural_outflow - decreased_discharge
-    total_pumped = data[columns_well].sum(axis=1)
+    # Prepare data
+    if time_units == 'days':
+        time_data = data["time"]  # Assuming input time is in days
+        time_axis_label = 'Time [days]'
+    elif time_units == 'years':
+        time_data = data["time"] / 360  # Convert days to years
+        time_axis_label = 'Time [years]'
+    else:
+        raise ValueError("time_units must be 'days' or 'years'")
+    
     storage_in = data[columns_storage_in].sum(axis=1)
     storage_out = data[columns_storage_out].sum(axis=1)
-    from_storage = storage_in - storage_out
     storage_change_rate = storage_out - storage_in
-    capture = induced_recharge + captured_discharge
-    storage_change_integrals = np.array([np.trapz(storage_change_rate[:i+1], time_data[:i+1]) - 
-                                         np.trapz(storage_change_rate[:i], time_data[:i]) 
-                                         if i > 0 else 0 for i in range(len(storage_change_rate))])
-    storage_change = np.cumsum(storage_change_integrals)
 
-    # Compute percentages (handle division by zero)
-    induced_recharge_pct = (induced_recharge * 100 / total_pumped).where(total_pumped != 0, 0)
-    captured_discharge_pct = (captured_discharge * 100 / total_pumped).where(total_pumped != 0, 0)
-    from_storage_pct = (from_storage * 100 / total_pumped).where(total_pumped != 0, 0)
-    capture_pct = (capture * 100 / total_pumped).where(total_pumped != 0, 0)
+    # Plotting
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot(time_data, storage_change_rate, label="STORAGE CHANGE", color="green")
 
-    # Add computed components and percentages to the DataFrame
-    data["Induced_Recharge"] = induced_recharge
-    data["Captured_Discharge"] = captured_discharge
-    data["Storage_Release"] = from_storage
-    data["Capture"] = capture
-    data["Storage_Change_rate"] = storage_change_rate
-    data["Storage_Change"] = storage_change
-    data["Induced_Recharge_Pct"] = induced_recharge_pct
-    data["Captured_Discharge_Pct"] = captured_discharge_pct
-    data["Storage_Release_Pct"] = from_storage_pct
-    data["Capture_Pct"] = capture_pct
+    ax.set_title("Change in Storage", fontsize=fontsize)
+    ax.set_xlabel(time_axis_label, fontsize=fontsize / 1.2)
+    ax.set_ylabel("m³", fontsize=fontsize / 1.2)
+    ax.legend(fontsize=fontsize / 1.2)
+    ax.grid()
 
-    # Compute net flow for each inflow/outflow pair
-    net_flow_columns = []
-    for col_in in columns_in:
-        base_name = col_in[:-3]  # Remove the "_IN" suffix
-        matching_out_col = base_name + "_OUT"
-        if matching_out_col in columns_out:
-            net_flow_col_name = base_name + "_Net_Flow"
-            data[net_flow_col_name] = data[col_in] - data[matching_out_col]
-            net_flow_columns.append(net_flow_col_name)
+    if xlim:
+        ax.set_xlim(xlim)
+    if ylim:
+        ax.set_ylim(ylim)
 
-    # Overwrite the original file with the updated DataFrame
-    data.to_csv(file_path, index=False)
+    plt.tight_layout()
 
-def process_csv_zonebudget(csv_path):
+    if show:
+        plt.show()
+
+    if save:
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        fig.savefig(output_path, dpi=300)
+        plt.close(fig)
+
+def plot_storage_change(file_path, 
+                        output_path, 
+                        show=False, 
+                        save=False, 
+                        figsize=(14, 12), 
+                        fontsize=14, 
+                        xlim=None,
+                        ylim=None,
+                        time_units="days"):
     """
-    Reads a CSV file, calculates water balance components, updates the DataFrame with 
-    the calculated values, and overwrites the CSV file.
+    Creates a time series plot for change in storage (cumulative).
 
-    Parameters:
-        csv_path (str): Path to the CSV file.
+    Args:
+        file_path (str): Path to the budget CSV file. The file should have a column called 'time' and 
+                         columns for storage components after being processed with process_csv_budget.
+        output_path (str): Path to save the plot if save is True.
+        show (bool): Whether to display the plot. Defaults to False.
+        save (bool): Whether to save the plot. Defaults to False.
+        figsize (tuple): Size of the figure. Defaults to (14, 12).
+        fontsize (int): Font size for plot labels and titles.
+        xlim (tuple or None): x-axis limits (min, max).
+        ylim (tuple or None): y-axis limits (min, max).
+        time_units (str): "days" or "years". Units for time axis label. Defaults to 'days'. Assumes model inputs in days by default.
 
-    Returns:
-        None
+    Outputs:
+        A figure with the cumulative change in storage time series.
     """
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import os
+
     # Load the CSV file
-    df = pd.read_csv(csv_path)
+    data = pd.read_csv(file_path)
 
-    # Filter inflow, outflow, and storage columns
-    inflow_columns = [
-        col for col in df.columns if 
-        ("IN" in col or "FROM" in col) and 
-        "STO" not in col and "DATA" not in col and "ZONE 0" not in col
-    ]
-    outflow_columns = [
-        col for col in df.columns if 
-        ("OUT" in col or "TO" in col) and 
-        "STO" not in col and "DATA" not in col and "ZONE 0" not in col and "WEL" not in col
-    ]
-    storage_out_columns = [
-        col for col in df.columns if "STO" in col and "OUT" in col
-    ]
-    storage_in_columns = [
-        col for col in df.columns if "STO" in col and "IN" in col
-    ]
-    pumped_columns = [
-        col for col in df.columns if "WEL" in col and "OUT" in col
-    ]
+    # Identify columns for storage components
+    columns_storage_in = [col for col in data.columns if "STO" in col and "IN" in col]
+    columns_storage_out = [col for col in data.columns if "STO" in col and "OUT" in col]
 
-    # Calculate natural inflow and outflow at time zero
-    natural_inflow = df.loc[df['totim'] == 0, inflow_columns].sum(axis=1).values[0]
-    natural_outflow = df.loc[df['totim'] == 0, outflow_columns].sum(axis=1).values[0]
+    # Prepare data for time series
+    if time_units == 'days':
+        time_data = data["time"]  # Assuming input time is in days
+        time_axis_label = 'Time [days]'
+    elif time_units == 'years':
+        time_data = data["time"] / 360  # Convert days to years
+        time_axis_label = 'Time [years]'
+    else:
+        raise ValueError("time_units must be 'days' or 'years'")
 
-    # Compute components using vectorized operations
-    induced_recharge = df[inflow_columns].sum(axis=1) - natural_inflow
-    captured_discharge = natural_outflow - df[outflow_columns].sum(axis=1)
-    storage_in = df[storage_in_columns].sum(axis=1)
-    storage_out = df[storage_out_columns].sum(axis=1)
-    from_storage = storage_in - storage_out
-    total_pumped = df[pumped_columns].sum(axis=1)
-    capture = induced_recharge + captured_discharge
+    # Compute the storage change rate (STORAGE OUT - STORAGE IN)
+    storage_in = data[columns_storage_in].sum(axis=1)
+    storage_out = data[columns_storage_out].sum(axis=1)
+    storage_change_rate = storage_out - storage_in
 
-    # Compute percentages (handle division by zero)
-    induced_recharge_pct = (induced_recharge * 100 / total_pumped).where(total_pumped != 0, 0)
-    captured_discharge_pct = (captured_discharge * 100 / total_pumped).where(total_pumped != 0, 0)
-    from_storage_pct = (from_storage * 100 / total_pumped).where(total_pumped != 0, 0)
-    capture_pct = (capture * 100 / total_pumped).where(total_pumped != 0, 0)
+    # Compute the cumulative storage change
+    storage_change = np.cumsum(storage_change_rate)
 
-    # Add computed components and percentages to the DataFrame
-    df["Induced_Recharge"] = induced_recharge
-    df["Captured_Discharge"] = captured_discharge
-    df["From_Storage"] = from_storage
-    df["Capture"] = capture
-    df["Induced_Recharge_Pct"] = induced_recharge_pct
-    df["Captured_Discharge_Pct"] = captured_discharge_pct
-    df["From_Storage_Pct"] = from_storage_pct
-    df["Capture_Pct"] = capture_pct
+    # Plot cumulative storage change
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot(time_data, storage_change, label="CUMULATIVE STORAGE CHANGE", color="green")
 
-    # Overwrite the CSV file
-    df.to_csv(csv_path, index=False)
+    ax.set_title("Cumulative Change in Storage", fontsize=fontsize)
+    ax.set_xlabel(time_axis_label, fontsize=fontsize / 1.2)
+    ax.set_ylabel("m³", fontsize=fontsize / 1.2)
+    ax.legend(fontsize=fontsize / 1.2)
+    ax.grid()
+
+    if xlim:
+        ax.set_xlim(xlim)
+    if ylim:
+        ax.set_ylim(ylim)
+
+    plt.tight_layout()
+
+    if show:
+        plt.show()
+
+    if save:
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        fig.savefig(output_path, dpi=300)
+        plt.close(fig)
+
+# Experimental: Plotting functions with stabilization analysis
 
 def plot_storage_change_rate_with_stabilization(file_path, 
                                                 output_path, 
@@ -1518,101 +1927,5 @@ def plot_head_time_series_with_equilibrium_markers(
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir)
         
-        fig.savefig(output_path, dpi=300)
-        plt.close(fig)
-
-def plot_net_flow_time_series(file_path, 
-                              output_path, 
-                              show=False, 
-                              save=False, 
-                              figsize=(14, 12), 
-                              fontsize=16, 
-                              tau=None):
-    """
-    Creates time series plots for the difference between inflow and outflow components.
-    Positive values represent inflows, and negative values represent outflows.
-
-    Args:
-        file_path (str): Path to the budget CSV file. The file should have a column called 'time' and 
-                         columns ending in _IN, _OUT.
-        output_path (str): Path to save the plot if save is True.
-        show (bool): Whether to display the plot. Defaults to False.
-        save (bool): Whether to save the plot. Defaults to False.
-        figsize (tuple): Size of the figure. Defaults to (14, 12).
-        fontsize (int): Font size for plot labels and titles.
-        tau (float or None): Time constant. If provided, vertical lines will be drawn at 3*tau and 5*tau. Defaults to None.
-
-    Outputs:
-        A figure with time series plots showing the difference between inflow and outflow
-        for each component.
-    """
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import os
-
-    # Load the CSV file
-    data = pd.read_csv(file_path)
-
-    def simplify_name(name):
-        # Extract content inside parentheses, if present
-        if '(' in name and ')' in name:
-            simplified = name.split('(')[1].split(')')[0].strip()  # Extract text inside parentheses
-        else:
-            simplified = name.strip()  # Fallback if no parentheses are found
-        return simplified
-
-    # Identify matching inflow and outflow columns
-    columns_in = [col for col in data.columns if col.endswith("_IN") and "STO" not in col and col != "TOTAL_IN"]
-    columns_out = [col.replace("_IN", "_OUT") for col in columns_in if col.replace("_IN", "_OUT") in data.columns]
-
-    # Prepare time data
-    time_data = data["time"]
-
-    # Create a figure
-    fig, ax = plt.subplots(figsize=figsize)
-
-    # Plot net flux for each component
-    legend_labels = []
-    for col_in, col_out in zip(columns_in, columns_out):
-        net_flux = data[col_in] - data[col_out]
-        label = simplify_name(col_in)
-        ax.plot(time_data, net_flux, label=label)
-        legend_labels.append(label)
-
-    # Sort legend labels alphabetically
-    handles, labels = ax.get_legend_handles_labels()
-    sorted_handles_labels = sorted(zip(handles, labels), key=lambda x: x[1])
-    handles, labels = zip(*sorted_handles_labels)
-    ax.legend(handles, labels, fontsize=fontsize / 1.2)
-
-    # Horizontal line at zero for the X-axis
-    ax.axhline(0, color='black', linewidth=0.8, linestyle='--')
-
-    ax.set_title("Net Flow (Inflow - Outflow) Components", fontsize=fontsize)
-    ax.set_xlabel("Time [days]", fontsize=fontsize / 1.2)
-    ax.set_ylabel("Net Flow [m³/day]", fontsize=fontsize / 1.2)
-    ax.grid()
-
-    # Plot equilibrium lines if tau is provided
-    if tau is not None:
-        eq_95 = 3 * tau
-        eq_99 = 5 * tau
-        ax.axvline(eq_95, color='red', linestyle='--', label=f'95% Equilibrium (3τ) at {eq_95} days')
-        ax.axvline(eq_99, color='blue', linestyle='--', label=f'99% Equilibrium (5τ) at {eq_99} days')
-        ax.legend(fontsize=fontsize / 1.2, loc='upper right')
-
-    # Adjust layout and show plot
-    plt.tight_layout()
-
-    if show:
-        plt.show()
-
-    # Save plot
-    if save:
-        output_dir = os.path.dirname(output_path)
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-
         fig.savefig(output_path, dpi=300)
         plt.close(fig)

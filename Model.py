@@ -51,11 +51,15 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # Set model directory and model names
 model_ws = 'mf'
 model_name = 'DEESAC'
-transient_name = 'DEESACt'
+model_name_tr = 'DEESACt'
+output_folder = f"{model_ws}/output"
+figure_folder = f"{model_ws}/fig"
+os.makedirs(output_folder, exist_ok=True)
+os.makedirs(figure_folder, exist_ok=True)
 
 # Set model parameters
 k = np.array([250, 1e-5, 25, 1e-5, 25]) #Horizontal hydraulic conductivity in m/d
-R = np.array([8e-4, 8e-4, 8e-4, 8e-4, 8e-4]) #Arid/Semi-arid conditions rates in m/d
+R = np.array([8e-4, 0, 8e-4, 0, 8e-4]) #Arid/Semi-arid conditions rates in m/d
 sy = np.array([0.25, 0.25, 0.25, 0.25, 0.25]) # Specific yield for Unconfined cells (adimentional)
 ss = np.array([1e-5, 1e-5, 1e-5, 1e-5, 1e-5]) # type: ignore # Specific storage for Confined cells (m-1)
 q = -15 # Pumping rate in m3/d
@@ -92,7 +96,7 @@ iterate = False # Iterates pumping rates over steady state model
 
 TRANSIENT = True
 plot_transient = True
-animate = False
+animate = True
 
 # ------------------------------------------------------------------------------- #
 # --------------------------- GEOMETRY GENERATION ------------------------------- #
@@ -133,27 +137,27 @@ k_array = modgeom6.compute_3Darray(k, idomain)
 if heterogeneity:
     # Generate random hydraulic conductivity fields for each layer
     k0 = modpar6.generate_random_field((nrow, ncol), "exponential",
-                                        geom_mean=k[0], sill=0.5, nugget=0.0,
+                                        geom_mean=k[0], sill=0.3, nugget=0.0,
                                         range_param=15000, drow=drow, dcol=dcol,
                                         param_type="K", seed=0)
 
     k1 = modpar6.generate_random_field((nrow, ncol), "exponential",
-                                        geom_mean=k[1], sill=0.5, nugget=0.0,
+                                        geom_mean=k[1], sill=0.3, nugget=0.0,
                                         range_param=15000, drow=drow, dcol=dcol,
                                         param_type="K", seed=1)
 
     k2 = modpar6.generate_random_field((nrow, ncol), "exponential",
-                                        geom_mean=k[2], sill=0.5, nugget=0.0,
+                                        geom_mean=k[2], sill=0.3, nugget=0.0,
                                         range_param=15000, drow=drow, dcol=dcol,
                                         param_type="K", seed=2)
 
     k3 = modpar6.generate_random_field((nrow, ncol), "exponential",
-                                        geom_mean=k[3], sill=0.5, nugget=0.0,
+                                        geom_mean=k[3], sill=0.3, nugget=0.0,
                                         range_param=15000, drow=drow, dcol=dcol,
                                         param_type="K", seed=3)
 
     k4 = modpar6.generate_random_field((nrow, ncol), "exponential",
-                                        geom_mean=k[4], sill=0.5, nugget=0.0,
+                                        geom_mean=k[4], sill=0.3, nugget=0.0,
                                         range_param=15000, drow=drow, dcol=dcol,
                                         param_type="K", seed=4)
 
@@ -188,12 +192,12 @@ gwf = flopy.mf6.ModflowGwf(sim,
 ims = flopy.mf6.ModflowIms(sim, pname="ims",
                            print_option="SUMMARY",
                            complexity="COMPLEX",
-                           outer_dvclose=0.1,
+                           outer_dvclose=0.01,
                            outer_maximum=10000,
                            under_relaxation="NONE",
                            inner_maximum=10000,
-                           inner_dvclose=0.1,
-                           rcloserecord=0.1,
+                           inner_dvclose=0.01,
+                           rcloserecord=0.01,
                            linear_acceleration="BICGSTAB",
                            scaling_method="NONE",
                            reordering_method="NONE",
@@ -227,18 +231,21 @@ npf = flopy.mf6.ModflowGwfnpf(gwf,
 oc = flopy.mf6.ModflowGwfoc(
     gwf,
     pname = "oc",
-    head_filerecord = f"{model_name}.hds",
-    budget_filerecord = f"{model_name}.cbb",
-    budgetcsv_filerecord = f"{model_name}_budget.csv",
+    head_filerecord = f"output/{model_name}.hds",
+    budget_filerecord = f"output/{model_name}.cbb",
+    budgetcsv_filerecord = f"output/{model_name}_budget.csv",
     saverecord = [("HEAD", "ALL"), ("BUDGET", "ALL")],
-    printrecord = [("HEAD", "ALL"),("BUDGET", "ALL")])
+    printrecord = [("HEAD", "ALL"),("BUDGET", "ALL")], 
+    filename = f"{model_name}.oc")
 
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
 # River package
-riv_cells1 = modbound6.extract_active_cells_n(irch, idomain, n=20)
+riv_cells1 = modbound6.extract_active_cells_n_range(irch, idomain, n=20, col_start=0, col_end=200)
+riv_cells2 = modbound6.extract_active_cells_n_range(irch, idomain, n=75, col_start=200, col_end=ncol-1)
+riv_cells = riv_cells1 + riv_cells2
 riv_spd1 = modbound6.create_riv_spd(
-    riv_cells1,
+    riv_cells,
     ztop_array,
     thickness_array,
     np.array([k[0]/100,k[1]*10,k[2]/10,k[3]*10,k[4]/10]),
@@ -256,9 +263,9 @@ riv1 = flopy.mf6.ModflowGwfriv(gwf,
                               filename = f"{model_name}.riv")
 
 # Drain package
-drn_cells1 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 50, 110)
-drn_cells2 = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 150, 210)
-drn_cells = drn_cells1 + drn_cells2
+drn_cells1 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 0, 202)
+#drn_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 150, 202)
+drn_cells = drn_cells1 #+ drn_cells2
 drn_spd = modbound6.create_drn_spd(
     drn_cells,
     ztop_array,
@@ -268,7 +275,7 @@ drn_spd = modbound6.create_drn_spd(
     drain_width=1,
     drainbed_thickness=1,
     elev_type="absolute",
-    a=10,
+    a=1,
     conc=None)
 drn = flopy.mf6.ModflowGwfdrn(gwf, 
                               pname = "drn",
@@ -309,7 +316,7 @@ ghb1 = flopy.mf6.ModflowGwfghb(gwf,
                                 print_flows=True,
                                 save_flows=True,
                                 boundnames=True,
-                                filename = f"{model_name}_1.ghb",
+                                filename = f"{model_name}.ghb",
                                 stress_period_data=ghb_spd1)
 
 # --------------------------------------------------------------------------- #    
@@ -322,37 +329,38 @@ if STEADY:
 
     # -------------------------- ZONE BUDGET -------------------------- #
 
-    zonbud = gwf.output.zonebudget(zone_array)
-    zonbud.change_model_ws(model_ws)
-    zonbud.write_input()
-    zonbud.run_model()
+    zonebud = gwf.output.zonebudget(zone_array)
+    zonebud.change_model_ws(output_folder)
+    zonebud.write_input()
+    zonebud.run_model()
 
     # -------------------------- OUTPUTS -------------------------- #
 
     head = gwf.output.head().get_data()
-    steady_state_heads = gwf.output.head().get_data()
+    steady_state_heads = head
     bud = gwf.output.budget()
     spdis = bud.get_data(text='DATA-SPDIS')[0]
     qx, qy, qz = flopy.utils.postprocessing.get_specific_discharge(spdis, gwf)
+    budget_file = f"{output_folder}/{model_name}_budget.csv"
 
     # -------------------------- PLOTTING -------------------------- #
 
     if plot_steady:
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
-                                f"{model_ws}/fig/cross_section_heads.png",
+                                f"{figure_folder}/cross_section_heads.png",
                                 boundary_keywords = boundary_keywords,
                                 flow_dir = False, surface = True, 
                                 show=False, save=True, figsize=(19, 4), layers = True, 
                                 title="Cross section - Steady state simulation")
 
-        modplot6.plot_bud_sum_steady(f"{model_ws}/{model_name}_budget.csv", 
-                                 f"{model_ws}/fig/bud_sum_ss.png", 
+        modplot6.plot_bud_sum_steady(budget_file, 
+                                 f"{figure_folder}/bud_sum_ss.png", 
                                 show=False, save=True, figsize=(14, 5), fontsize=14)
 
         modplot6.plot_cross_section_array(gwf, 
                              k_array, 
                              nrow//2, 
-                             f"{model_ws}/fig/cross_section_layers.png", 
+                             f"{figure_folder}/cross_section_layers.png", 
                              boundary_keywords=boundary_keywords, 
                              show = False, 
                              save = True, 
@@ -375,13 +383,12 @@ if STEADY:
     if iterate:
         # Define the pumping rates to iterate over in steady state conditions
         q_values = [-0, -0.4, -2, -4, -8, -12, -16, -20, -24, -28, -32, -36, -40, -60]
-        csv_file_name = f"{model_name}_budget.csv"
-
+        
         # Run the iterate_pumping_rate function 
         modpump6.iterate_pumping_rate_steady(sim, gwf, wel_spd, wel, q_values, model_ws, 
-                                        f"{model_ws}/cross sections",
-                                        f"{model_ws}/fig",
-                                        csv_file_name,
+                                        f"{figure_folder}/cross_sections_ss",
+                                        f"{figure_folder}",
+                                        budget_file,
                                         nrow//2,
                                         boundary_keywords = boundary_keywords,
                                         animate = True,
@@ -411,9 +418,10 @@ if TRANSIENT:
     # ------------------------------------------------------------------------------- #
     # --------------------------------- MODEL SETUP --------------------------------- #
     # ------------------------------------------------------------------------------- #
-
+    
     # Recall groundater flow model object from simulation
     gwf = sim.gwf[0]
+    gwf.model_nam_file = f"{model_name_tr}.nam"
     ncol = gwf.dis.ncol.get_data()
     nrow = gwf.dis.nrow.get_data()
     nlay = gwf.dis.nlay.get_data()
@@ -423,7 +431,7 @@ if TRANSIENT:
     # Update time discretization
     nper = 4
     perlen = [0]*1 + [7560000]*1 + [19800]*1 + [360000]*1
-    nstp = [1]*1 + [210]*1 +[660]*1 + [1000]*1
+    nstp = [1]*1 + [210]*1 +[55]*1 + [100]*1
     tsmult = [1]*1 + [1]*1 + [1]*1 + [1]*1
     perioddata = list(zip(perlen, nstp, tsmult))
     tdis = sim.tdis
@@ -436,6 +444,7 @@ if TRANSIENT:
         ic.strt = steady_state_heads
     else:
         ic.strt = ztop_array
+    ic.filename = f"{model_name_tr}.ic"
 
     # Create storage package for transient simulation
     sto = flopy.mf6.ModflowGwfsto(
@@ -445,14 +454,15 @@ if TRANSIENT:
         sy=sy, #Specific yield
         ss=ss, #If not specified, flopy uses default value of 1e-5 m-1
         steady_state={0: True},
-        transient={1: True})
+        transient={1: True}, 
+        filename=f"{model_name_tr}.sto")
 
     # Update output control
     oc = gwf.oc
-    oc.head_filerecord = f"{transient_name}.hds"
-    oc.budget_filerecord = f"{transient_name}.cbb"
-    oc.budgetcsv_filerecord = f"{transient_name}_budget.csv"
-
+    oc.head_filerecord = f"output/{model_name_tr}.hds"
+    oc.budget_filerecord = f"output/{model_name_tr}.cbb"
+    oc.budgetcsv_filerecord = f"output/{model_name_tr}_budget.csv"
+    oc.filename = f"{model_name_tr}.oc"
     # ---------------------------- UPDATE TRANSIENT BOUNDARY CONDITIONS -------------------------- #
     # Update transient recharge package
     rch = flopy.mf6.ModflowGwfrcha(gwf, 
@@ -461,10 +471,29 @@ if TRANSIENT:
                                 fixed_cell= True,
                                 irch=irch,
                                 recharge = "TIMEARRAYSERIES recharge", 
-                                filename = f"{transient_name}.rcha")
-    tas_data = {0 : R_array,
-            3000000 : R_array,
-            20000000 : R_array}
+                                filename = f"{model_name_tr}.rcha")
+    #Manual step changes
+    #tas_data = {0 : R_array,
+    #        3000000 : R_array,
+    #        20000000 : R_array} 
+
+    # Load your recharge series CSV
+    df = pd.read_csv(f"{model_ws}/transient_recharge.csv", delimiter=';')
+
+    # For recharge specified per layer
+    # Extract time steps and R time series per layer
+    time_steps = df.iloc[:, 0].values  # shape (n_times_steps,)
+    R_vectors = df.iloc[:, 1:].values  # shape (n_time_steps, n_layers)
+    # Compute recharge arrays per time step
+    tas_data = {}
+    for i, t in enumerate(time_steps):
+        R = R_vectors[i]
+        recharge_array = modgeom6.compute_recharge(irch, R)  # shape (nrow, ncol)
+        tas_data[t] = recharge_array
+
+    # For single recharge series
+    # tas_data = dict(zip(df.iloc[:, 0], df.iloc[:, 1]))
+
     rch.tas.initialize(
         filename="recharge_rates.ts",
         tas_array=tas_data,
@@ -479,7 +508,7 @@ if TRANSIENT:
                               save_flows = True,
                               boundnames=True,
                               stress_period_data = wel_spd, 
-                              filename = f"{transient_name}.wel")
+                              filename = f"{model_name_tr}.wel")
     ts_data = [(0, 0),
                (7560000 , q),
                (20000000 , q)]
@@ -493,17 +522,18 @@ if TRANSIENT:
 
     # Head obervations
     obs_recarray = {
-        "head_obs_t.csv": [("Head at pumping well - Unconfined Aquifer", "HEAD", (0, 0, well_loc[2])),
-                        ("Head at pumping well - Aquitard", "HEAD", (1, 0, well_loc[2])),
-                        ("Head at pumping well - Confined Aquifer", "HEAD", (2, 0, well_loc[2])),
-                        ("Head at pumping well - Aquitard", "HEAD", (3, 0, well_loc[2])),
-                        ("Head at pumping well - Confined Aquifer", "HEAD", (4, 0, well_loc[2]))]}
+        f"output/head_obs_t.csv": [ ("Head at pumping well - Unconfined Aquifer", "HEAD", (0, 0, well_loc[2])),
+                            ("Head at pumping well - Aquitard", "HEAD", (1, 0, well_loc[2])),
+                            ("Head at pumping well - Confined Aquifer", "HEAD", (2, 0, well_loc[2])),
+                            ("Head at pumping well - Aquitard", "HEAD", (3, 0, well_loc[2])),
+                            ("Head at pumping well - Confined Aquifer", "HEAD", (4, 0, well_loc[2]))]}
 
     obs_package = flopy.mf6.ModflowUtlobs(
         gwf,
         pname="head_obs_t",
         print_input=True,
-        continuous=obs_recarray)
+        continuous=obs_recarray, 
+        filename=f"{model_name_tr}.obs")
     
     # ---------------------------- RUN SIMULATION ------------------------------- #
 
@@ -512,18 +542,19 @@ if TRANSIENT:
 
     # ------------------------------ ZONE BUDGET -------------------------------- #
 
-    zonbud = gwf.output.zonebudget(zone_array)
-    zonbud.change_model_ws(model_ws)
-    zonbud.write_input()
-    zonbud.run_model()
+    zonebud= gwf.output.zonebudget(zone_array)
+    zonebud.change_model_ws(output_folder)
+    zonebud.write_input()
+    zonebud.run_model()
 
     # --------------------------------------------------------------------------- #
     # ------------------------------- PLOTTING ---------------------------------- #
     # --------------------------------------------------------------------------- #
     if plot_transient:
+        
         # Select time step, period, and layer to plot
         ts_num = 0
-        sp_num = nper - 1 
+        sp_num = 0 
         layer = 0
         elapsed_time = modtransient6.elapsed_time(perioddata, sp_num, ts_num)
 
@@ -532,70 +563,79 @@ if TRANSIENT:
         spdis = bud.get_data(text='DATA-SPDIS', kstpkper=(ts_num, sp_num))[layer] 
         qx, qy, qz = flopy.utils.postprocessing.get_specific_discharge(spdis, gwf)
 
-        hobj = flopy.utils.HeadFile(f"{model_ws}/{transient_name}.hds")
-        heads = hobj.get_alldata()
+        hobj = flopy.utils.HeadFile(f"{output_folder}/{model_name_tr}.hds")
+        transient_heads = hobj.get_alldata()
 
-        fig_dir = os.path.join(model_ws, "fig")
-        os.makedirs(fig_dir, exist_ok=True) 
+        budget_file_t = f"{output_folder}/{model_name_tr}_budget.csv"
+
+        zonebud_file_t = f"{output_folder}/zonebud.csv"
+
+        head_file_t = f"{output_folder}/head_obs_t.csv"
 
         #--------------------------------------- HEADS ---------------------------------------------#
 
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
-                                        f"{model_ws}/fig/cross_section_heads_t.png",
+                                        f"{figure_folder}/cross_section_heads_t.png",
                                         boundary_keywords = boundary_keywords,
                                         flow_dir = False, surface = True, layers=True,
                                         show=False, save=True, figsize = (19, 4),
                                         title=f"Cross section at time {elapsed_time} days")
 
-        modtransient6.plot_head_time_series("head_obs_t.csv", 
+        modtransient6.plot_head_time_series(head_file_t, 
                                             gwf, 
-                                            f"{model_ws}/fig/head_ts.png",
+                                            f"{figure_folder}/head_ts.png",
                                             show = False, 
                                             save = True, 
                                             tau = None, 
                                             time_units="years")
 
         #--------------------------------------- FLOW BUDGET ---------------------------------------------#
+        modtransient6.process_csv_budget(budget_file_t)  
 
-        file_path = f"{model_ws}/{transient_name}_budget.csv"
-        modtransient6.process_csv_budget(file_path)  
-
-        modtransient6.plot_bud_sum_transient(file_path, elapsed_time, 
-                                            f"{model_ws}/fig/bud_sum_t.png", 
+        modtransient6.plot_bud_sum_transient(budget_file_t, elapsed_time, 
+                                            f"{figure_folder}/bud_sum_t.png", 
                                             show = False, save=True)
 
-        modtransient6.plot_bud_time_series(file_path,  
-                                        f"{model_ws}/fig/budget_ts.png", 
-                                        show=False, save=True, time_units="years")
+        modtransient6.plot_bud_time_series(budget_file_t,  
+                                        f"{figure_folder}/budget_ts.png", 
+                                        show=False, save=True, 
+                                        time_units="years")
 
-        modtransient6.plot_water_to_wells(file_path, 
-                                        f"{model_ws}/fig/water_to_wells.png", 
-                                        show=False, 
-                                        save=True, time_units="years")
+        modtransient6.plot_water_to_wells(budget_file_t, 
+                                        f"{figure_folder}/water_to_wells.png", 
+                                        show=False, save=True, 
+                                        time_units="years")
 
-        modtransient6.plot_net_flow_time_series(file_path,
-                                                f"{model_ws}/fig/net_flow_ts.png",
-                                                show=False, save=True, tau = None, time_units="years")
+        modtransient6.plot_net_flow_time_series(budget_file_t,
+                                                f"{figure_folder}/net_flow_ts.png",
+                                                show=False, save=True, tau = None, 
+                                                time_units="years")
 
         #--------------------------------------- ZONE BUDGET ---------------------------------------------#
-        zone_bud_path = f"{model_ws}/zonebud.csv"
-        modtransient6.plot_zone_budget(zone_bud_path, fig_dir, show=False, save=True, zone_descriptions = {
-                1: "Unconfined Aquifer",
-                2: "Aquitard",
-                3: "Confined Aquifer",
-                4: "Aquitard",
-                5: "Confined Aquifer"}, time_units="years")
-        modtransient6.plot_water_to_wells_zonebud(zone_bud_path, fig_dir, show=False, save=True, time_units="years")
+        
+        modtransient6.plot_zone_budget(zonebud_file_t, figure_folder, show=False, save=True, 
+                                       zone_descriptions = {
+                                        1: "Unconfined Aquifer",
+                                        2: "Aquitard",
+                                        3: "Confined Aquifer",
+                                        4: "Aquitard",
+                                        5: "Confined Aquifer"}, 
+                                        time_units="years")
+        
+        modtransient6.plot_water_to_wells_zonebud(zonebud_file_t, figure_folder, 
+                                                  show=False, save=True, 
+                                                  time_units="years")
 
         #--------------------------------------- TRANSIENT ANIMATION ---------------------------------------------#
 
         if animate:
-            modplot6.plot_animation(gwf, heads, qx, qy, qz, nrow//2, 
-                                        f"{model_ws}/sections",
-                                        f"{model_ws}/fig/heads_transient.gif",
+            modplot6.plot_animation(gwf, transient_heads, qx, qy, qz, nrow//2, 
+                                        f"{figure_folder}/cross_sections_tr",
+                                        f"{figure_folder}/heads_transient.gif",
                                         boundary_keywords = boundary_keywords,
                                         flow_dir = False, surface = True, layers=True,
-                                        show=False, save=True, figsize = (19, 4), gif_start=0, gif_step=10)
+                                        show=False, save=True, figsize = (19, 4), 
+                                        gif_start=0, gif_step=20, duration=2)
 
 end_time = time.time()
 print(f"Total execution time: {end_time - start_time:.2f} seconds")

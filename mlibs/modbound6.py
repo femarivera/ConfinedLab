@@ -432,3 +432,40 @@ def extract_active_cells_range(irch, idomain, row_start, row_end, col_start, col
 
     return active_cells
 
+def extract_active_cells_n_range(irch, idomain, n, col_start, col_end):
+    """
+    Extract active cell indices (k, i, j) from irch and idomain arrays,
+    checking every n-th column within the column range [col_start, col_end).
+
+    Parameters:
+        irch: 2D array-like of shape (nrow, ncol) with layer indices (0 to nlay-1).
+        idomain: 3D array-like of shape (nlay, nrow, ncol) with values 1 (active) or 0 (inactive).
+        n (int): Step size for column indexing.
+        col_start (int): Starting column index (inclusive).
+        col_end (int): Ending column index (exclusive).
+
+    Returns:
+        list of (k, i, j) indices for active cells checked every n-th column within the range.
+    """
+    import numpy as np
+
+    nrow, ncol = irch.shape
+    nlay, idom_nrow, idom_ncol = idomain.shape
+
+    if (idom_nrow, idom_ncol) != (nrow, ncol):
+        raise ValueError(f"idomain shape {idomain.shape} does not match irch shape {irch.shape} in last two dimensions.")
+    if not (isinstance(n, int) and n > 0):
+        raise ValueError("n must be a positive integer.")
+    if not (0 <= col_start < ncol) or not (0 < col_end <= ncol) or col_start >= col_end:
+        raise ValueError("Invalid column range specified.")
+
+    active_cells = []
+    for i in range(nrow):
+        # select columns within the given range, stepping by n
+        j_vals = np.arange(col_start, col_end, n)
+        k_vals = irch[i, j_vals]
+        for k, j in zip(k_vals, j_vals):
+            if 0 <= k < nlay and idomain[k, i, j] == 1:
+                active_cells.append((int(k), i, int(j)))
+
+    return active_cells

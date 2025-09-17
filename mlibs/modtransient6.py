@@ -60,21 +60,22 @@ def plot_head_time_series(head_file_path,
     import os
     
     # Retrieve head observation data using Flopy
-    csv = gwf.head_obs.output.obs(f=head_file_path).get_data()
-    
+    #csv = gwf.head_obs.output.obs(f=head_file_path).get_data()
+    csv = pd.read_csv(head_file_path)
+
     fig = plt.figure(figsize=figsize)
 
     # Plot head values over time
     if time_units == 'days':
-        time_axis = csv["totim"]  # Assuming input time is in days
+        time_axis = csv["time"]  # Assuming input time is in days
         time_axis_label = 'Time [days]'
     if time_units == 'years':
-        time_axis = csv["totim"] / 360  # Convert days to years
+        time_axis = csv["time"] / 360  # Convert days to years
         time_axis_label = 'Time [years]'
     else:
         raise ValueError("time_units must be 'days' or 'years'")
 
-    for name in csv.dtype.names[1:]:  # Skip the first column (totim) as it's time
+    for name in csv.columns[1:]:  # Skip the first column (time)
         plt.plot(time_axis, csv[name], label=name)
 
     # Automatically adapt the y-axis limits based on the data range

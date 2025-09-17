@@ -765,7 +765,7 @@ def plot_animation(gwf, heads,
                     show=False, save=False, 
                     flow_dir=True, surface=True, layers=True,
                     figsize=(19, 4), fontsize=14, 
-                    gif_start=0, gif_step=1):
+                    gif_start=0, gif_step=1, duration=0.5):
     """
     Plot cross-sections for all time steps in the heads array, save images, and create an animation.
 
@@ -786,6 +786,7 @@ def plot_animation(gwf, heads,
         fontsize (int, optional): Font size for plot labels.
         gif_start (int, optional): First time step to include in the animation.
         gif_step (int, optional): Step size for time steps in the animation.
+        duration (float, optional): Duration (in seconds) for each frame in the GIF.
 
     Outputs:
         Saves cross-section images for each time step and creates an animated GIF.
@@ -847,7 +848,7 @@ def plot_animation(gwf, heads,
         print(f"Saved cross-section plot for time step {tstep} at {output_path}")
 
     # Create the GIF animation
-    with imageio.get_writer(gif_output_path, mode='I', duration=0.5) as writer:
+    with imageio.get_writer(gif_output_path, mode='I', duration=duration) as writer:
         for image_path in image_paths:
             image = imageio.imread(image_path)
             writer.append_data(image)

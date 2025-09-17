@@ -259,9 +259,9 @@ def process_csv_budget(csv_path):
     # Prepare data for time series
     time_data = data["time"]
 
-    # Extract the natural inflow and outflow from the first time step (first row)
-    natural_inflow = data["TOTAL_IN"].iloc[0]
-    natural_outflow = data["TOTAL_OUT"].iloc[0]
+    # Extract the reference inflow and outflow from the first time step (first row)
+    reference_inflow = data["TOTAL_IN"].iloc[0]
+    reference_outflow = data["TOTAL_OUT"].iloc[0]
 
     # Identify columns
     columns_in = [col for col in data.columns if col.endswith("_IN") and "STO" not in col and col != "TOTAL_IN"]
@@ -273,9 +273,9 @@ def process_csv_budget(csv_path):
     columns_storage_out = [col for col in data.columns if "STO" in col and "OUT" in col]
 
     # Compute components
-    induced_recharge = data[columns_in].sum(axis=1) - natural_inflow
+    induced_recharge = data[columns_in].sum(axis=1) - reference_inflow
     decreased_discharge = data[columns_out].sum(axis=1)
-    captured_discharge = natural_outflow - decreased_discharge
+    captured_discharge = reference_outflow - decreased_discharge
     total_pumped = data[columns_well].sum(axis=1)
     storage_in = data[columns_storage_in].sum(axis=1)
     storage_out = data[columns_storage_out].sum(axis=1)
@@ -354,13 +354,13 @@ def process_csv_zonebudget(csv_path):
         col for col in df.columns if "WEL" in col and "OUT" in col
     ]
 
-    # Calculate natural inflow and outflow at time zero
-    natural_inflow = df.loc[df['totim'] == 0, inflow_columns].sum(axis=1).values[0]
-    natural_outflow = df.loc[df['totim'] == 0, outflow_columns].sum(axis=1).values[0]
+    # Calculate reference inflow and outflow at time zero (reference state)
+    reference_inflow = df.loc[df['totim'] == 0, inflow_columns].sum(axis=1).values[0]
+    reference_outflow = df.loc[df['totim'] == 0, outflow_columns].sum(axis=1).values[0]
 
     # Compute components using vectorized operations
-    induced_recharge = df[inflow_columns].sum(axis=1) - natural_inflow
-    captured_discharge = natural_outflow - df[outflow_columns].sum(axis=1)
+    induced_recharge = df[inflow_columns].sum(axis=1) - reference_inflow
+    captured_discharge = reference_outflow - df[outflow_columns].sum(axis=1)
     storage_in = df[storage_in_columns].sum(axis=1)
     storage_out = df[storage_out_columns].sum(axis=1)
     from_storage = storage_in - storage_out
@@ -611,7 +611,7 @@ def plot_water_to_wells(file_path,
     Plots various water budget components related to well abstraction:
     
     The first time step in the transient simulation should be a steady state stress period
-    to evaluate the effects of pumping starting from natural/baseline conditions.
+    to evaluate the effects of pumping starting from natural/baseline/reference conditions.
 
     - Induced Recharge: Inflow components (excluding recharge) 
       (corresponds to the induced inflows from flow boundaries like RIV, GHB, etc.).
@@ -641,9 +641,9 @@ def plot_water_to_wells(file_path,
     # Load the CSV file
     data = pd.read_csv(file_path)
 
-    # Extract the natural inflow and outflow from the first time step (first row)
-    natural_inflow = data["TOTAL_IN"].iloc[0]  # value from the first row in "TOTAL_INFLOW"
-    natural_outflow = data["TOTAL_OUT"].iloc[0]  # value from the first row in "TOTAL_OUTFLOW"
+    # Extract the reference inflow and outflow from the first time step (first row)
+    reference_inflow = data["TOTAL_IN"].iloc[0]  # value from the first row in "TOTAL_INFLOW"
+    reference_outflow = data["TOTAL_OUT"].iloc[0]  # value from the first row in "TOTAL_OUTFLOW"
 
     # Identify columns
     columns_in = [col for col in data.columns if col.endswith("_IN") and "STO" not in col and col != "TOTAL_IN"]
@@ -666,9 +666,9 @@ def plot_water_to_wells(file_path,
         raise ValueError("time_units must be 'days' or 'years'")
 
     # Compute components
-    induced_recharge = data[columns_in].sum(axis=1) - natural_inflow
+    induced_recharge = data[columns_in].sum(axis=1) - reference_inflow
     decreased_discharge = data[columns_out].sum(axis=1)
-    captured_discharge = natural_outflow - decreased_discharge
+    captured_discharge = reference_outflow - decreased_discharge
     total_pumped = data[columns_well].sum(axis=1)
     storage_in = data[columns_storage_in].sum(axis=1)
     storage_out = data[columns_storage_out].sum(axis=1)
@@ -1073,15 +1073,15 @@ def plot_water_to_wells_zonebud(csv_path,
         else:
             raise ValueError("time_units must be 'days' or 'years'")
 
-        # Calculate natural inflow and outflow at time zero
-        #natural_inflow = zone_data.loc[zone_data['totim'] == 0, inflow_columns].sum(axis=1).values[0]
-        #natural_outflow = zone_data.loc[zone_data['totim'] == 0, outflow_columns].sum(axis=1).values[0]
-        natural_inflow = zone_data[inflow_columns].iloc[0].sum()
-        natural_outflow = zone_data[outflow_columns].iloc[0].sum()
+        # Calculate reference inflow and outflow at time zero (reference state)
+        #reference_inflow = zone_data.loc[zone_data['totim'] == 0, inflow_columns].sum(axis=1).values[0]
+        #reference_outflow = zone_data.loc[zone_data['totim'] == 0, outflow_columns].sum(axis=1).values[0]
+        reference_inflow = zone_data[inflow_columns].iloc[0].sum()
+        reference_outflow = zone_data[outflow_columns].iloc[0].sum()
 
         # Compute components using vectorized operations
-        induced_recharge = zone_data[inflow_columns].sum(axis=1) - natural_inflow
-        captured_discharge = natural_outflow - zone_data[outflow_columns].sum(axis=1)
+        induced_recharge = zone_data[inflow_columns].sum(axis=1) - reference_inflow
+        captured_discharge = reference_outflow - zone_data[outflow_columns].sum(axis=1)
         storage_in = zone_data[storage_in_columns].sum(axis=1)
         storage_out = zone_data[storage_out_columns].sum(axis=1)
         from_storage = storage_in - storage_out

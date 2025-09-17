@@ -66,22 +66,33 @@ def update_well_pumping_rate_steady(gwf,
                                     wel, 
                                     q):
     """
-    Updates the pumping rate (q) for all wells in wel_spd[0] and modifies the corresponding well package (wel).
+    Updates the pumping rates for all wells in wel_spd[0] and modifies 
+    the corresponding well package (wel).
     Used for STEADY STATE SIMULATIONS.
     
     Parameters:
         gwf (flopy.mf6.ModflowGwf): The groundwater flow model object.
         wel_spd (dict): The dictionary containing well stress period data.
         wel (flopy.mf6.ModflowGwfwel): The well package object.
-        q (float): The new pumping rate to update.
+        q (tuple or list): Pumping rates for each well. Length must match
+                           number of wells in wel_spd[0].
     
     Returns:
         None (modifies wel_spd in place and updates the wel object).
     """
-    # Iterate through each well in stress period 0 and update the pumping rate
-    for i in range(len(wel_spd[0])):
-        # Update the tuple in wel_spd
-        wel_spd[0][i] = (wel_spd[0][i][0], wel_spd[0][i][1], wel_spd[0][i][2], q)
+
+    n_wells = len(wel_spd[0])
+
+    # Check input length
+    if len(q) != n_wells:
+        raise ValueError(f"Length of q ({len(q)}) must equal number of wells ({n_wells})")
+
+    # Update each well with its corresponding pumping rate
+    for i in range(n_wells):
+        wel_spd[0][i] = (wel_spd[0][i][0],  # layer
+                         wel_spd[0][i][1],  # row
+                         wel_spd[0][i][2],  # column
+                         q[i])              # pumping rate
     
     # Update the well package (wel) with the new pumping rate for stress period 0
     wel = flopy.mf6.ModflowGwfwel(gwf, 
@@ -95,6 +106,7 @@ def iterate_pumping_rate_steady(model_ws,
                                 wel_spd, 
                                 wel, 
                                 q_values,
+                                q_ref,
                                 budget_csv_file, 
                                 row, 
                                 figure_dir,
@@ -105,8 +117,7 @@ def iterate_pumping_rate_steady(model_ws,
                                 duration=0.5, 
                                 save_budget = False, 
                                 save_wells = False,
-                                save_csv = False, 
-                                q_ref=0):
+                                save_csv = False):
     """
     Function to iterate through different pumping rates, run simulations, and generate plots.
     Used for STEADY STATE SIMULATIONS.
@@ -117,7 +128,10 @@ def iterate_pumping_rate_steady(model_ws,
         gwf (flopy.mf6.ModflowGwf): The groundwater flow model object.
         wel_spd (dict): The dictionary containing well stress period data.
         wel (flopy.mf6.ModflowGwfwel): The well package object.
-        q_values (np.ndarray): Array of pumping rates to iterate through.
+        q_values (list of tuples): List of n_well tuples. Each tuple contains pumping rates for each iteration for each well.
+                                    len(q_values) = n_wells and len(q_values[0]) = n_iterations.
+        q_ref (tuple): Reference pumping rate for initial simulation (normally 0 for natural conditions).
+                       Length must match number of wells.
         budget_csv_file (str): Path to the CSV file containing budget data.
         row (int): Row index for cross-section plotting.
         figure_dir (str): Directory to save figures.
@@ -129,7 +143,6 @@ def iterate_pumping_rate_steady(model_ws,
         save_budget (bool): Whether to save the water budget plot.
         save_wells (bool): Whether to save the water to wells plot.
         save_csv (bool): Whether to save the pumping analysis results to a CSV file.
-        q_ref (float): Reference pumping rate for initial simulation (default is 0 for natural conditions).
 
     Returns:
         Plot of induced recharge, natural discharge, and captured discharge vs pumping rates
@@ -152,9 +165,10 @@ def iterate_pumping_rate_steady(model_ws,
     csv_file_path = os.path.join(budget_csv_file)
     data = pd.read_csv(csv_file_path)
 
-    # Get inflow and outflow from TOTAL_IN and TOTAL_OUT as the reference values (natural conditions)
-    natural_inflow = data['TOTAL_IN'].iloc[-1]
-    natural_outflow = data['TOTAL_OUT'].iloc[-1]
+    # Get reference inflow and outflow from TOTAL_IN and TOTAL_OUT (excluding well abstractions)
+    reference_inflow = data['TOTAL_IN'].iloc[-1]
+    reference_other_out = [col for col in data.columns if col.endswith("_OUT") and "WEL" not in col and col != "TOTAL_OUT"]
+    reference_outflow = data[reference_other_out].sum(axis=1).iloc[-1]
 
     # --------------------------------------------------------------------- #
     # ----------------------------- PUMPING RATES ------------------------- #
@@ -172,17 +186,29 @@ def iterate_pumping_rate_steady(model_ws,
     # Initialize a dictionary to store the results for each column in relevant_columns
     column_results = {col: [] for col in relevant_columns}
 
-    for idx, q in enumerate(q_values):
-        print(f"Running simulation with pumping rate: {q} m³/day")
-        
-        # Update the pumping rate for all wells
-        update_well_pumping_rate_steady(gwf, wel_spd, wel, q)
-        
-        # Write and run the simulation
+    n_wells = len(wel_spd[0])
+    assert len(q_values) == n_wells, (
+        f"q_values must have {n_wells} tuple entries (one per well), "
+        f"but got {len(q_values)}")
+    
+    n_iterations = len(q_values[0])
+    for well_idx, rates in enumerate(q_values):
+        assert len(rates) == n_iterations, (
+            f"Well {well_idx} has {len(rates)} pumping rates, "
+            f"but expected {n_iterations}")
+    
+    for it in range(n_iterations):
+        # Build a tuple of pumping rates for this iteration as input for the update well function
+        q_tuple = tuple(q_values[well_idx][it] for well_idx in range(n_wells))
+
+        # Update pumping rates
+        update_well_pumping_rate_steady(gwf, wel_spd, wel, q_tuple)
+
+        print(f"Running simulation {it+1} with pumping rates: {q_tuple} m³/day")
         sim.write_simulation()
         success, buff = sim.run_simulation()
         if not success:
-            print(f"Simulation failed for pumping rate {q}")
+            print(f"Simulation {it+1} failed for pumping rates {q_tuple}")
             continue
         
         # ---------------------------- ANIMATION --------------------------------- #
@@ -206,10 +232,10 @@ def iterate_pumping_rate_steady(model_ws,
                                             boundary_keywords = boundary_keywords,
                                             flow_dir = False, surface = True, layers=True,
                                             show = False, save = False, ax=ax)
-            plt.title(f"Cross-Section for Pumping Rate: {abs(q):.1f} m³/day")
+            plt.title(f"Cross-Section for Total Pumping Rate: {abs(sum(q_tuple)):.1f} m³/day")
 
             # Save the plot as an image and append the path to image_paths
-            image_path = os.path.join(cross_section_dir, f"cross_section_q_{idx}.png")
+            image_path = os.path.join(cross_section_dir, f"cross_section_{it}.png")
             fig.savefig(image_path, dpi=300)
             image_paths.append(image_path)
             plt.close(fig)
@@ -228,17 +254,16 @@ def iterate_pumping_rate_steady(model_ws,
 
         # Compute induced recharge, natural discharge, and capture
         total_in = data['TOTAL_IN'].iloc[-1]
-        induced_recharge = total_in - natural_inflow  # Induced recharge = total_in - natural_inflow
-        
+        induced_recharge = total_in - reference_inflow 
         
         columns_other_out = [col for col in data.columns if col.endswith("_OUT") and "WEL" not in col and col != "TOTAL_OUT"]
         natural_discharge = data[columns_other_out].sum(axis=1).iloc[-1]
         
         # Compute captured discharge
-        captured_discharge = natural_outflow - natural_discharge
+        captured_discharge = reference_outflow - natural_discharge
 
         # Store results
-        pumping_rates.append(abs(q))
+        pumping_rates.append(abs(sum(q_tuple))) # Total pumping rate (absolute value)
         induced_recharge_results.append(induced_recharge)
         natural_discharge_results.append(natural_discharge)
         captured_discharge_results.append(captured_discharge)

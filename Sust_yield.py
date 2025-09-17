@@ -18,8 +18,8 @@ output_dir = "C:/Users/cmarinriver/Projects/ConfinedLab/sust_yield_results"
 model_ws_name = "mf" 
 
 # Set output file basenames as written by the model output (not full paths)
-model_name = 'DEESAC'
-budget_file_name = f"{model_name}t_budget.csv"
+model_name = 'DEESACt'
+budget_file_name = f"{model_name}_budget.csv"
 zonebud_file_name = "zonebud.csv"
 head_file_name = "head_obs_t.csv"
 

@@ -53,7 +53,7 @@ mdcol_width = 14/2.54
 dbcol_width = 19/2.54
 
 # Import local modules
-sys.path.append('..')
+sys.path.append(r'C:/Users/cmarinriver/Projects/ConfinedLab')
 from mlibs import modpar6, modplot6, modtransient6, modpump6, modgeom6, modbound6 # type: ignore
 
 # Check the current and parent directories
@@ -87,7 +87,7 @@ R = np.array([8e-4, 0, 8e-4, 0, 8e-4]) #Arid/Semi-arid conditions rates in m/d
 transient_recharge_file = "C:/Users/cmarinriver/Projects/ConfinedLab/mf/transient_recharge.csv"
 
 # Set model parameters
-q = -15 # Pumping rate in m3/d
+q = {Q_VALUE} # Pumping rate in m3/d
 well_loc = (2, 0, 400) # Well location (layer, row, column)
 q_values = [-0, -2, -4, -6, -8, -10, -12, -14, -16, -18, -20] # Define the pumping rates to iterate over for sustainable yield estimation
 

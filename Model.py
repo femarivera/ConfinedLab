@@ -1,3 +1,25 @@
+# ==========================================================================================
+#  Model.py - MODFLOW 6 Model Setup and Execution Script
+# ==========================================================================================
+#
+#  Author: MARIN RIVERA Carlos Felipe
+#  Organization: Bordeaux INP, Lab EPOC, Université de Bordeaux
+#  Project: Funded by the OneWater PEPR DEESAC Project
+#
+#  DESCRIPTION:
+#  ------------
+#  This script sets up, runs, and analyzes MODFLOW 6 groundwater flow model of a synthetic
+#  multilayer aquifer system for the ConfinedLab project. It integrates model construction,  
+#  steady state and transient simulation, and post-processing utilities for flow and budget 
+#  analysis.
+#
+#  USAGE:
+#  ------
+#  Configure model parameters, execute the simulation, and generate outputs
+#  for further analysis and visualization.
+#
+# ==========================================================================================
+
 # ---------------------------------------------------------------------------------------- #
 # ----------------------------------------- STEADY STATE --------------------------------- #
 # ---------------------------------------------------------------------------------------- #
@@ -57,13 +79,16 @@ figure_folder = f"{model_ws}/fig"
 os.makedirs(output_folder, exist_ok=True)
 os.makedirs(figure_folder, exist_ok=True)
 
-# Set model parameters
+# Set model hydraulic parameters
 k = np.array([250, 1e-5, 25, 1e-5, 25]) #Horizontal hydraulic conductivity in m/d
 R = np.array([8e-4, 0, 8e-4, 0, 8e-4]) #Arid/Semi-arid conditions rates in m/d
 sy = np.array([0.25, 0.25, 0.25, 0.25, 0.25]) # Specific yield for Unconfined cells (adimentional)
 ss = np.array([1e-5, 1e-5, 1e-5, 1e-5, 1e-5]) # type: ignore # Specific storage for Confined cells (m-1)
+
+# Set model parameters
 q = -15 # Pumping rate in m3/d
 well_loc = (2, 0, 400) # Well location (layer, row, column)
+q_values = [-0, -2, -4, -6, -8, -10, -12, -14, -16, -18, -20] # Define the pumping rates to iterate over for sustainable yield estimation
 
 # Set model grid parameters
 nlay = 5 # Number of layers
@@ -74,7 +99,7 @@ width = 1 # Total width of model in meters
 dcol = length/ncol # Column size in meters
 drow = width/nrow # Row size in meters
 
-# Define synthetic geometry generation parameters
+# Set synthetic geometry generation parameters
 epsilon = 0 # Minimum allowed cell thickness in meters
 outcrop_z = np.array([100, 150, 200, 250, 350]) # Elevation (Just used when SLOPE is set to False)
 outcrop_zmax = np.array([200, 300, 400, 500, 500]) # Elevation (Just used when SLOPE are set to True)
@@ -92,11 +117,11 @@ heterogeneity = True # If True, generates random hydraulic conductivity fields
 
 STEADY = True # Runs the steady state model
 plot_steady = True # Plots steady state outputs
-iterate = False # Iterates pumping rates over steady state model
+iterate = True # Iterates pumping rates over steady state model. Uses q_values defined above
 
-TRANSIENT = True
-plot_transient = True
-animate = True
+TRANSIENT = True # Runs the transient model
+plot_transient = True # Plots transient outputs
+animate = True # Animates transient cross sections
 
 # ------------------------------------------------------------------------------- #
 # --------------------------- GEOMETRY GENERATION ------------------------------- #
@@ -310,8 +335,8 @@ ghb_spd1[0] = [((0, 0, ncol-1), ghb_1, k[0]*base_thicknesses[0]*width, "Unconfin
                 ((2, 0, ncol-1), ghb_1, k[2]*base_thicknesses[2]*width, "Caq1"),
                 ((3, 0, ncol-1), ghb_1, k[3]*base_thicknesses[3]*width, "Aqt2"),
                 ((4, 0, ncol-1), ghb_1, k[4]*base_thicknesses[4]*width, "Caq2")]
-ghb1 = flopy.mf6.ModflowGwfghb(gwf,
-                                pname="ghb1",
+ghb = flopy.mf6.ModflowGwfghb(gwf,
+                                pname="ghb",
                                 print_input=True,
                                 print_flows=True,
                                 save_flows=True,
@@ -381,19 +406,14 @@ if STEADY:
     # ----------------------------------------------------------------------------- #
 
     if iterate:
-        # Define the pumping rates to iterate over in steady state conditions
-        q_values = [-0, -0.4, -2, -4, -8, -12, -16, -20, -24, -28, -32, -36, -40, -60]
-        
         # Run the iterate_pumping_rate function 
-        modpump6.iterate_pumping_rate_steady(sim, gwf, wel_spd, wel, q_values, model_ws, 
-                                        f"{figure_folder}/cross_sections_ss",
+        modpump6.iterate_pumping_rate_steady(model_ws, sim, gwf, wel_spd, wel, q_values, budget_file, nrow//2,
                                         f"{figure_folder}",
-                                        budget_file,
-                                        nrow//2,
+                                        f"{output_folder}/{model_name}_modpump6_ss.csv",
                                         boundary_keywords = boundary_keywords,
-                                        animate = True,
-                                        save_budget = True,
-                                        save_wells = True)
+                                        animate = True, animation_name = "cross_section_animation_ss.gif",
+                                        duration = 2.5, #In seconds, duration of each frame
+                                        save_budget = True, save_wells = True, save_csv = True)
 
 if TRANSIENT:
     
@@ -631,7 +651,7 @@ if TRANSIENT:
         if animate:
             modplot6.plot_animation(gwf, transient_heads, qx, qy, qz, nrow//2, 
                                         f"{figure_folder}/cross_sections_tr",
-                                        f"{figure_folder}/heads_transient.gif",
+                                        f"{figure_folder}/cross_section_animation_tr.gif",
                                         boundary_keywords = boundary_keywords,
                                         flow_dir = False, surface = True, layers=True,
                                         show=False, save=True, figsize = (19, 4), 

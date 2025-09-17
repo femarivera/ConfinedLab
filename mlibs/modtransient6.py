@@ -23,6 +23,25 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
+def simplify_name(name):
+    """
+    Simplifies a column or component name for plotting and display.
+    If the input string contains parentheses, extracts and returns the text inside them.
+    Otherwise, returns the stripped original string.
+
+    Args:
+        name (str): The input string to simplify (e.g., a column name).
+
+    Returns:
+        str: Simplified name for display or legend.
+    """
+    # Extract content inside parentheses, if present
+    if '(' in name and ')' in name:
+        simplified = name.split('(')[1].split(')')[0].strip()  # Extract text inside parentheses
+    else:
+        simplified = name.strip()  # Fallback if no parentheses are found
+    return simplified
+   
 def plot_head_time_series(head_file_path, 
                           gwf, 
                           output_path, 
@@ -403,15 +422,6 @@ def plot_bud_time_series(file_path,
     # Load the CSV file
     data = pd.read_csv(file_path)
     
-    # Function to simplify column names for legend
-    def simplify_name(name):
-        # Extract content inside parentheses, if present
-        if '(' in name and ')' in name:
-            simplified = name.split('(')[1].split(')')[0].strip()  # Extract text inside parentheses
-        else:
-            simplified = name.strip()  # Fallback if no parentheses are found
-        return simplified
-
     # Identify columns for inflow, outflow, and total
     columns_in = [col for col in data.columns if col.endswith("_IN") and "STO" not in col and col != "TOTAL_IN"]
     columns_out = [col for col in data.columns if col.endswith("_OUT") and "STO" not in col and col != "TOTAL_OUT"]
@@ -527,14 +537,6 @@ def plot_net_flow_time_series(file_path,
 
     # Load the CSV file
     data = pd.read_csv(file_path)
-
-    def simplify_name(name):
-        # Extract content inside parentheses, if present
-        if '(' in name and ')' in name:
-            simplified = name.split('(')[1].split(')')[0].strip()  # Extract text inside parentheses
-        else:
-            simplified = name.strip()  # Fallback if no parentheses are found
-        return simplified
 
     # Identify matching inflow and outflow columns
     columns_in = [col for col in data.columns if col.endswith("_IN") and "STO" not in col and col != "TOTAL_IN"]
@@ -761,15 +763,6 @@ def plot_bud_sum_transient(file_path,
     # Load the CSV file
     data = pd.read_csv(file_path)
 
-    # Simplify column names
-    def simplify_name(name):
-        # Extract content inside parentheses, if present
-        if '(' in name and ')' in name:
-            simplified = name.split('(')[1].split(')')[0].strip()  # Extract text inside parentheses
-        else:
-            simplified = name.strip()  # Fallback if no parentheses are found
-        return simplified
-
     # Identify columns
     columns_in = [col for col in data.columns if col.endswith("_IN") and "STO" not in col and col != "TOTAL_IN"]
     columns_out = [col for col in data.columns if col.endswith("_OUT") and "STO" not in col and col != "TOTAL_OUT"]
@@ -893,14 +886,7 @@ def plot_zone_budget(csv_path,
         time_axis_label = 'Time [years]'
     else:
         raise ValueError("time_units must be 'days' or 'years'")
-    
-    def simplify_name(name):
-        # Extract content inside parentheses, if present
-        if '(' in name and ')' in name:
-            simplified = name.split('(')[1].split(')')[0].strip()  # Extract text inside parentheses
-        else:
-            simplified = name.strip()  # Fallback if no parentheses are found
-        return simplified
+
 
     # Identify unique zones
     zones = df['zone'].unique()
@@ -1199,11 +1185,6 @@ def plot_storage_change_rate(file_path,
     # Load the CSV file
     data = pd.read_csv(file_path)
 
-    def simplify_name(name):
-        if '(' in name and ')' in name:
-            return name.split('(')[1].split(')')[0].strip()
-        return name.strip()
-
     # Identify columns for storage components
     columns_storage_in = [col for col in data.columns if "STO" in col and "IN" in col]
     columns_storage_out = [col for col in data.columns if "STO" in col and "OUT" in col]
@@ -1368,11 +1349,6 @@ def plot_storage_change_rate_with_stabilization(file_path,
 
     # Load the CSV file
     data = pd.read_csv(file_path)
-
-    def simplify_name(name):
-        if '(' in name and ')' in name:
-            return name.split('(')[1].split(')')[0].strip()
-        return name.strip()
 
     # Identify columns for storage components
     columns_storage_in = [col for col in data.columns if "STO" in col and "IN" in col]
@@ -1736,14 +1712,6 @@ def plot_net_flow_time_series_with_equilibrium_markers(
 
     # Load the CSV file
     data = pd.read_csv(file_path)
-
-    def simplify_name(name):
-        # Extract content inside parentheses, if present
-        if '(' in name and ')' in name:
-            simplified = name.split('(')[1].split(')')[0].strip()  # Extract text inside parentheses
-        else:
-            simplified = name.strip()  # Fallback if no parentheses are found
-        return simplified
 
     # Identify matching inflow and outflow columns
     columns_in = [col for col in data.columns if col.endswith("_IN") and "STO" not in col and col != "TOTAL_IN"]

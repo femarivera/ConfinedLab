@@ -767,7 +767,8 @@ def plot_animation(gwf, heads,
                     figsize=(19, 4), fontsize=14, 
                     gif_start=0, gif_step=1, duration=0.5):
     """
-    Plot cross-sections for all time steps in the heads array, save images, and create an animation.
+    Plot cross-sections for all time steps in the heads array, save images, and create an animation
+    of a transient simulation.
 
     Args:
         gwf (flopy.mf6.ModflowGwf): Groundwater flow model object.

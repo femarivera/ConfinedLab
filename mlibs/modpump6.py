@@ -1,47 +1,66 @@
+# ==========================================================================================
+#  modpump6.py - Steady State Pumping Analysis Utilities for MODFLOW 6 Groundwater Models
+# ==========================================================================================
+#
+#  Author: MARIN RIVERA Carlos Felipe
+#  Organization: Bordeaux INP, Lab EPOC, Université de Bordeaux
+#  Project: Funded by the OneWater PEPR DEESAC Project
+#
+#  DESCRIPTION:
+#  ------------
+#  This module provides utilities for analyzing well pumping scenarios in steady state MODFLOW 6 
+#  models. It automates pumping rate iteration and generates plots and animations for flow budgets 
+#  and well abstraction analysis.
+#
+#  MAIN FEATURES:
+#  --------------
+#  - Update and iterate well pumping rates for MODFLOW 6 steady state simulations.
+#  - Analyze induced recharge, natural discharge, and captured discharge.
+#  - Visualize cross-sections and create pumping scenario animations.
+#  - Generate water budget plots and well abstraction summaries.
+#
+# ==========================================================================================
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import flopy
 import os
 import sys
-from matplotlib.animation import FuncAnimation, PillowWriter
+import imageio
 
 # Import local modules
 import sys
 sys.path.append('..')
 from mlibs import modplot6 # type: ignore
 
-def create_cross_section_animation(image_paths, 
-                                   output_file):
+def simplify_name(name):
     """
-    Creates an animation from a list of image file paths.
+    Simplifies a column or component name for display in plots and legends.
 
-    Parameters:
-        image_paths (list of str): List of file paths to images.
-        output_file (str): Path to save the animation GIF.
+    If the input string contains parentheses, extracts the text inside and combines it
+    with the text after the next underscore. Otherwise, replaces underscores with spaces.
+
+    Args:
+        name (str): The input string to simplify (e.g., a column name).
 
     Returns:
-        None (saves the animation as a GIF).
+        str: Simplified name for display or legend.
     """
-    plt.ioff()
-
-    frames = [plt.imread(img) for img in image_paths]
-
-    fig, ax = plt.subplots(figsize=(15, 6))
-    img = ax.imshow(frames[0])
-    ax.axis("off")
-
-    def update(frame):
-        img.set_data(frame)
-        return [img]
-
-    ani = FuncAnimation(fig, update, frames=frames, interval=300, blit=True)
-
-    # Save animation as a GIF
-    ani.save(output_file, writer=PillowWriter(fps=1))
-    print(f"Animation saved as {output_file}")
-    plt.close(fig)        
-
+    # If parentheses are present
+    if '(' in name and ')' in name:
+        # Extract text inside parentheses
+        simplified = name.split('(')[1].split(')')[0].strip()
+        # Extract text after the underscore and strip spaces
+        after_underscore = name.split(')')[1].split('_')[1].strip()
+        # Combine both parts with a space
+        simplified = simplified + " " + after_underscore
+        return simplified
+    else:
+    # If no parentheses, replace the underscore with a space
+        simplified = name.replace('_', ' ')  
+        return simplified
+       
 def update_well_pumping_rate_steady(gwf, 
                                     wel_spd, 
                                     wel, 
@@ -51,6 +70,7 @@ def update_well_pumping_rate_steady(gwf,
     Used for STEADY STATE SIMULATIONS.
     
     Parameters:
+        gwf (flopy.mf6.ModflowGwf): The groundwater flow model object.
         wel_spd (dict): The dictionary containing well stress period data.
         wel (flopy.mf6.ModflowGwfwel): The well package object.
         q (float): The new pumping rate to update.
@@ -69,52 +89,70 @@ def update_well_pumping_rate_steady(gwf,
                                  save_flows = True,
                                  stress_period_data = wel_spd)
 
-def iterate_pumping_rate_steady(sim, 
+def iterate_pumping_rate_steady(model_ws,
+                                sim, 
                                 gwf, 
                                 wel_spd, 
                                 wel, 
-                                q_values, 
-                                model_ws, 
-                                cross_section_dir, 
-                                output_dir, 
-                                budget_csv_file_name, 
-                                row,
+                                q_values,
+                                budget_csv_file, 
+                                row, 
+                                figure_dir,
+                                csv_output_path, 
                                 boundary_keywords = None,
-                                animate=False, 
+                                animate=False,
+                                animation_name = "cross_section_animation_ss.gif",
+                                duration=0.5, 
                                 save_budget = False, 
-                                save_wells = False):
+                                save_wells = False,
+                                save_csv = False, 
+                                q_ref=0):
     """
     Function to iterate through different pumping rates, run simulations, and generate plots.
     Used for STEADY STATE SIMULATIONS.
 
     Parameters:
+        model_ws (str): Path to the model workspace directory.
         sim (flopy.mf6.MFSimulation): The simulation object.
+        gwf (flopy.mf6.ModflowGwf): The groundwater flow model object.
+        wel_spd (dict): The dictionary containing well stress period data.
         wel (flopy.mf6.ModflowGwfwel): The well package object.
         q_values (np.ndarray): Array of pumping rates to iterate through.
-        budget_csv_file_name (str): Name of the CSV file generated after each simulation
-        AS DEFINED IN THE OUTPUT CONTROL PACKAGE.
+        budget_csv_file (str): Path to the CSV file containing budget data.
+        row (int): Row index for cross-section plotting.
+        figure_dir (str): Directory to save figures.
+        csv_output_path (str): Path to the CSV output file.
+        boundary_keywords (list of str, optional): List of boundary condition keywords to include in cross-section plots.
+        animate (bool): Whether to create an animation of cross-sections.
+        animation_name (str): Name of the output animation file.
+        duration (float): Duration (in seconds) for each frame in the animation.
+        save_budget (bool): Whether to save the water budget plot.
+        save_wells (bool): Whether to save the water to wells plot.
+        save_csv (bool): Whether to save the pumping analysis results to a CSV file.
+        q_ref (float): Reference pumping rate for initial simulation (default is 0 for natural conditions).
 
     Returns:
         Plot of induced recharge, natural discharge, and captured discharge vs pumping rates
     """
 
     # --------------------------------------------------------------------- #
-    # ----------------------------- NO PUMPING ---------------------------- #
+    # ------------------- REFERENCE PUMPING SCENARIO ---------------------- #
     # --------------------------------------------------------------------- #
+    # A default reference pumping scenario of no pumping (natural conditions) is used.
 
-    # Read initial simulation with q=0 to get the natural inflow and natural outflow
-    update_well_pumping_rate_steady(gwf, wel_spd, wel, 0)  # Set pumping rate to 0 for natural conditions
+    # Read initial simulation with q_ref to get the reference inflow and reference outflow
+    update_well_pumping_rate_steady(gwf, wel_spd, wel, q_ref) 
     sim.write_simulation()
     success, buff = sim.run_simulation()
     if not success:
-        print(f"Simulation failed for pumping rate 0")
+        print(f"Simulation failed for pumping rate {q_ref}")
         return
 
-    # Path to the initial CSV file (natural conditions)
-    csv_file_path = os.path.join(model_ws, budget_csv_file_name)
+    # Path to the reference CSV file
+    csv_file_path = os.path.join(budget_csv_file)
     data = pd.read_csv(csv_file_path)
 
-    # Get natural inflow and natural outflow from TOTAL_IN and TOTAL_OUT
+    # Get inflow and outflow from TOTAL_IN and TOTAL_OUT as the reference values (natural conditions)
     natural_inflow = data['TOTAL_IN'].iloc[-1]
     natural_outflow = data['TOTAL_OUT'].iloc[-1]
 
@@ -122,17 +160,16 @@ def iterate_pumping_rate_steady(sim,
     # ----------------------------- PUMPING RATES ------------------------- #
     # --------------------------------------------------------------------- #
     
-    # Initialize lists and paths to output directories
-   
+    # Initialize lists of outputs
     induced_recharge_results = []
     natural_discharge_results = []
     captured_discharge_results = []
     pumping_rates = []
     image_paths = []
 
-    # Identify relevant columns (excluding first and last columns)
-    relevant_columns = data.columns[1:-1]  # Exclude first and last columns
-    # Initialize a list to store the results for each column in relevant_columns
+    # Identify relevant columns (excluding first and last columns that correspond to time and percent difference)
+    relevant_columns = data.columns[1:-1] 
+    # Initialize a dictionary to store the results for each column in relevant_columns
     column_results = {col: [] for col in relevant_columns}
 
     for idx, q in enumerate(q_values):
@@ -150,6 +187,7 @@ def iterate_pumping_rate_steady(sim,
         
         # ---------------------------- ANIMATION --------------------------------- #
         if animate:
+            cross_section_dir = os.path.join(figure_dir, "cross_sections_ss")
             # Create directory if it does not exist
             if cross_section_dir and not os.path.exists(cross_section_dir):
                 os.makedirs(cross_section_dir)
@@ -170,27 +208,21 @@ def iterate_pumping_rate_steady(sim,
                                             show = False, save = False, ax=ax)
             plt.title(f"Cross-Section for Pumping Rate: {abs(q):.1f} m³/day")
 
-            # Save the plot as an image                 
-            # List to store paths of cross-section images
+            # Save the plot as an image and append the path to image_paths
             image_path = os.path.join(cross_section_dir, f"cross_section_q_{idx}.png")
             fig.savefig(image_path, dpi=300)
             image_paths.append(image_path)
             plt.close(fig)
-        
-            # Create animation from saved images
-            if image_paths:
-                create_cross_section_animation(image_paths, os.path.join(model_ws, "cross_section_animation.gif"))
-            else:
-                print("No successful simulations to animate.")
 
         # ------------------- DATA FOR FLOW BUDGET PLOTS ----------------------- #
 
         # Path to the current CSV file
-        csv_file_path = os.path.join(model_ws, budget_csv_file_name)
+        csv_file_path = os.path.join(budget_csv_file)
 
         # Load the CSV file generated by the current simulation
         data = pd.read_csv(csv_file_path)
 
+        # Append the last (and only) value of each relevant column to the corresponding list in column_results
         for col in relevant_columns:
             column_results[col].append(data[col].iloc[-1])
 
@@ -214,21 +246,6 @@ def iterate_pumping_rate_steady(sim,
     # --------------------------------------------------------------------- #
     # -------------------------- PLOTS FLOW BUDGET ------------------------ #
     # --------------------------------------------------------------------- #
-
-    def simplify_name(name):
-        # If parentheses are present
-        if '(' in name and ')' in name:
-            # Extract text inside parentheses
-            simplified = name.split('(')[1].split(')')[0].strip()
-             # Extract text after the underscore and strip spaces
-            after_underscore = name.split(')')[1].split('_')[1].strip()
-            # Combine both parts with a space
-            simplified = simplified + " " + after_underscore
-            return simplified
-        else:
-        # If no parentheses, replace the underscore with a space
-            simplified = name.replace('_', ' ')  
-            return simplified
 
     # Split relevant columns into two groups based on "_IN" and "_OUT"
     columns_in = [col for col in relevant_columns if "_IN" in col]
@@ -283,7 +300,7 @@ def iterate_pumping_rate_steady(sim,
     plt.tight_layout()
     
     if save_budget:
-        image_path = os.path.join(output_dir, f"modpump6_water budget.png")
+        image_path = os.path.join(figure_dir, f"modpump6_water budget.png")
         fig.savefig(image_path, dpi=300)
         plt.close(fig)         
 
@@ -318,6 +335,35 @@ def iterate_pumping_rate_steady(sim,
     plt.tight_layout()
     
     if save_wells:
-        image_path = os.path.join(output_dir, f"modpump6_water to wells.png")
+        image_path = os.path.join(figure_dir, f"modpump6_water to wells.png")
         fig2.savefig(image_path, dpi=300)
         plt.close(fig2) 
+
+    # Create animation from saved images
+    if animate:
+        if image_paths:
+            with imageio.get_writer(os.path.join(figure_dir, animation_name), 
+                                    mode='I', duration=duration) as writer:
+                for image_path in image_paths:
+                    image = imageio.imread(image_path)
+                    writer.append_data(image)
+        else:
+            print("No successful simulations to animate.")
+
+    # Save results as CSV
+    if save_csv:
+        # Prepare dictionary for DataFrame
+        results_dict = {}
+        results_dict['Pumping_Rate'] = pumping_rates
+        # Add relevant columns
+        for col in relevant_columns:
+            results_dict[col] = column_results[col]
+        # Add induced recharge, natural discharge, and captured discharge
+        results_dict['Induced_Recharge'] = induced_recharge_results
+        results_dict['Natural_Discharge'] = natural_discharge_results
+        results_dict['Captured_Discharge'] = captured_discharge_results
+
+        df_results = pd.DataFrame(results_dict)
+
+        df_results.to_csv(csv_output_path, index=False)
+        print(f"Pumping analysis results saved to {csv_output_path}")

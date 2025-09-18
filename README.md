@@ -17,10 +17,10 @@ of response times into past and future behaviour of the system to inform sustain
 - **Flexible Model Setup:**  
   Quickly define model grids, hydraulic properties, boundary conditions, and recharge scenarios.
 
-- **Optimize a pumping scenario**  
-  Estimate the sustainable yield based on a constrained optimization approach with user defined constrains and goals.
+- **Sustainable Yield estimations:**  
+  Maximize abstractions in a given pumping scenario subject to a series of predefined constrains.
 
-- **Visualization & Analysis:**  
+- **Visualization and Analysis:**  
   Built-in plotting and post-processing tools for heads, flows, budgets, and more.
 
 - **Analyse parameter influence on results:**  

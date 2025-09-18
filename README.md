@@ -62,7 +62,7 @@ modplot6.plot_cross_section_array(gwf,
                       fontsize=14,
                       label="Model layes") 
 ```
-![Example geometry output](example_output_geometry.jpg)
+![Example geometry output](example_output_geometry.png)
 
 
 ```python
@@ -98,7 +98,7 @@ modplot6.plot_cross_section_array(gwf,
                       fontsize=14,
                       label="Model layes") 
 ```
-![Example geometry output](example_output_geometry_2.jpg)
+![Example geometry output](example_output_geometry_2.png)
 
 
 ## Contact

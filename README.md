@@ -1,11 +1,11 @@
 # ConfinedLab
 
 **ConfinedLab** is a modular Python toolkit for generating, simulating, and analyzing synthetic multilayer groundwater flow systems using MODFLOW 6. 
-It is designed for research, teaching, and rapid prototyping of conceptual hydrogeological models of confined aquifer systems.
+It is designed for research, teaching, and rapid prototyping of conceptual and numerical hydrogeological models of confined aquifer systems.
 
-Its primary goal is to investigate the transient response of multilayer aquifer systems to external climatic and anthropogenic forcings by using 
-numerical flow models. Furthermore, it aims to assess the implications of response times into past and future behaviour of the system to inform 
-approaches for the estimation of sustainable yields.
+As part of the [PEPR One Water DEESAC project](https://www.onewater.fr/fr/actualite/actualite/lancement-du-projet-deesac-durabilite-exploitabilite-des-eaux-souterraines-des "Go to onewater.fr"), its primary goal is to investigate the transient response of multilayer aquifer systems to external 
+climatic and anthropogenic forcings by using numerical flow models, with a focus on confined aquifers. Furthermore, it aims to assess the implications 
+of response times into past and future behaviour of the system to inform sustainability assessments.
 
 ---
 

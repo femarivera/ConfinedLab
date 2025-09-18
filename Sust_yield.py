@@ -3,16 +3,17 @@ start_time = time.time()
 import shutil
 import os
 import subprocess
+import pandas as pd
 
 # --------------------------------------------------------------------------------------- #
 # ------------------------------- USER INPUTS ------------------------------------------- #
 # --------------------------------------------------------------------------------------- #
 
-# Input the original model script file absolute paths
-model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py"
-mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab"
+setup_file = "C:/Users/cmarinriver/Projects/ConfinedLab/setup.xlsx" # Absolute paths
+model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py" # Absolute paths
 
-output_dir = "C:/Users/cmarinriver/Projects/ConfinedLab/sust_yield_results"
+mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab" # Absolute paths
+output_dir = "C:/Users/cmarinriver/Projects/ConfinedLab/sust_yield_results" # Absolute paths
 
 # Define model workspace name subscript (used to taylor output paths)
 model_ws_name = "mf" 
@@ -22,11 +23,6 @@ model_name = 'DEESACt'
 budget_file_name = f"{model_name}_budget.csv"
 zonebud_file_name = "zonebud.csv"
 head_file_name = "head_obs_t.csv"
-
-# Values of parameter to iterate over
-q_values = [-0, -2, -4, -8, -12, -16, -20]
-parameter = "q"
-
 
 # --------------------------------------------------------------------------------------- #
 # ------------------------------- PREPARE ITERATION FILE -------------------------------- #
@@ -44,28 +40,67 @@ shutil.copy(model_file, new_file_path)
 with open(new_file_path, "r") as f:
     lines = f.readlines()
 
-q_replaced = False
+setup_replaced = False
 for i, line in enumerate(lines):
     if "sys.path.append('..')" in line:
         lines[i] = f"sys.path.append(r'{mlibs_path}')\n"
-    if not q_replaced and line.strip().startswith("q ="):
-        lines[i] = "q = {Q_VALUE} # Pumping rate in m3/d\n"
-        q_replaced = True
+    if not setup_replaced and line.strip().startswith("setup_file ="):
+        lines[i] = f"setup_file = r'{setup_file}' # Excel file containing model setup parameters\n"
+        setup_replaced = True
 
 # Save back the modified file
 with open(new_file_path, "w") as f:
     f.writelines(lines)
 print("Iteration script created at:", new_file_path)
 
-
 # --------------------------------------------------------------------------------------- #
-# ------------------------------- ITERATE MODEL ----------------------------------------- #
+# ------------------------------- UPDATE AND RUN MODEL ---------------------------------- #
 # --------------------------------------------------------------------------------------- #
 
-# Iterate over the k_values
-for q in q_values:
+# Load setup
+# file contining the pumping rates used by modflow6
+well_df = pd.read_excel(setup_file, sheet_name="wells")
+
+# q-values for each iteration
+q_df = pd.read_excel(setup_file, sheet_name="q_values_tr")       
+
+# Identify iteration columns (all except well_id + time)
+iter_cols = [c for c in q_df.columns if c not in ["well_id", "time", "comment"]]
+n_iterations = len(iter_cols)
+
+for i, col in enumerate(iter_cols, start=1):
+
+    print(f"\n--- Running iteration {i}/{n_iterations} with {col} ---")
+
+    # ------------------------------------------------------------------------------------- #
+    # -------------------------------- PREPARE SETUP FILE --------------------------------- #
+    # ------------------------------------------------------------------------------------- #
+
+    # Merge well_df with the selected q column
+    merged = well_df.drop(columns=["q"]).merge(
+        q_df[["well_id", "time", col]],
+        on=["well_id", "time"],
+        how="left")
+    
+    # Rename current iteration q value column to "q"
+    merged = merged.rename(columns={col: "q"})
+
+    # Write updated wells sheet back to Excel (overwrite only that sheet)
+    with pd.ExcelWriter(setup_file, mode="a", if_sheet_exists="replace") as writer:
+        merged.to_excel(writer, sheet_name="wells", index=False)
+
+    # --- Run your model here ---
+    # run_model(setup_file)
+
+    # --- Optionally, save results tagged by iteration ---
+    # save_results(iteration=i)
+
+    # --------------------------------------------------------------------------------------- #
+    # ------------------------------- ITERATE MODEL ----------------------------------------- #
+    # --------------------------------------------------------------------------------------- #
+
     # Create a unique model workspace directory name based on the parameter value
-    model_ws = os.path.join(output_dir, f"{model_ws_name}_{parameter}_{q}")
+    model_ws = os.path.join(output_dir, f"{model_ws_name}_it_{col}")
     
     # Create the directory for model_ws if it doesn't exist
     os.makedirs(model_ws, exist_ok=True)
@@ -74,22 +109,11 @@ for q in q_values:
     shutil.copy(new_file_path, model_ws)
     script_path = os.path.join(model_ws, new_filename)
     
-    # Replace placeholder with the desired pumping rate
-    with open(script_path, 'r') as file:
-        script_content = file.read()
-    script_content = script_content.replace("{Q_VALUE}", str(q))
-
-    # Replace {MLIBS_PATH} with the absolute path to 'mlibs'
-    script_content = script_content.replace("{MLIBS_PATH}", mlibs_path)
-    
-    with open(script_path, 'w') as file:
-        file.write(script_content)
-    
     # Run the script inside the unique model workspace folder
     # You can use subprocess to execute the script in that directory
     subprocess.run(["python", script_path], cwd=model_ws)
 
-    print(f"Model run completed for {parameter}={q}, model_ws={model_ws}")
+    print(f"Model run completed for iteration {i} with q={col}, model_ws={model_ws}")
 
 
 # --------------------------------------------------------------------------------------- #
@@ -102,8 +126,8 @@ os.makedirs(results_folder, exist_ok=True)
 
 # Loop through the sub-folders in the output directory to get relevant files
 for folder_name in os.listdir(output_dir):
-    # Check if the folder matches the pattern "model_ws_name_parameter_xxxx"
-    if folder_name.startswith(f"{model_ws_name}_{parameter}_"):
+    # Check if the folder matches the pattern "model_ws_name_it_xxxx"
+    if folder_name.startswith(f"{model_ws_name}_it_"):
         folder_path = os.path.join(output_dir, folder_name)
         mf_path = os.path.join(folder_path, model_ws_name, "output")
 

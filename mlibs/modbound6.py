@@ -9,7 +9,7 @@
 #  DESCRIPTION:
 #  ------------
 #  As part of the ConfinedLab project, this module provides flexible utilities 
-#  for generating and manipulating boundary condition stress period data (SPD) for MODFLOW 6 groundwater models.
+#  for generating and manipulating boundary condition stress period data (SPD) for steady state MODFLOW 6 groundwater models.
 #  The approach supports the creation of river (RIV), general head boundary (GHB), and drain (DRN) package inputs,
 #  as well as utilities for extracting active cell indices from model arrays.
 #

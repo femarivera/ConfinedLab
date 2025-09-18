@@ -105,7 +105,7 @@ modplot6.plot_cross_section_array(gwf,
 
 For questions, suggestions, or contributions, please contact:  
 Carlos Felipe Marin Rivera  
-Bordeaux INP, Lab EPOC, Université de Bordeaux
+Bordeaux INP, UMR 5805 Lab EPOC, Université de Bordeaux
 cmarinriver@bordeaux-inp.fr  
 
 <p float="left">

@@ -24,9 +24,9 @@
 # ----------------------------------------- STEADY STATE --------------------------------- #
 # ---------------------------------------------------------------------------------------- #
 
-# ------------------------------------------------------------------------ #
-# ----------------------------- IMPORT MODULES --------------------------- #
-# ------------------------------------------------------------------------ #
+# ---------------------------------------------------------------------------------------- #
+# ------------------------------------- IMPORT MODULES ----------------------------------- #
+# ---------------------------------------------------------------------------------------- #
 import time
 start_time = time.time()
 import os
@@ -103,14 +103,6 @@ width = float(grid_df["lrow"][0]) # Total width of model in meters
 dcol = int(grid_df["dcol"][0]) # Column size in meters
 drow = int(grid_df["drow"][0]) # Row size in meters
 
-# Set synthetic geometry generation parameters
-geom_df = pd.read_excel(setup_file, sheet_name="geometry")
-outcrop_z = geom_df["outcrop_z"].to_numpy() # Elevation (Just used when SLOPE is set to False)
-outcrop_zmax = geom_df["outcrop_zmax"].to_numpy() # Elevation (Just used when SLOPE are set to True)
-outcrop_zmin = geom_df["outcrop_zmin"].to_numpy() # Elevation (Just used when SLOPE are set to True)
-base_thicknesses = geom_df["base_thicknesses"].to_numpy() # Layer thickness in meters
-outcrop_cells = geom_df["outcrop_cells"].to_numpy() # Cell ID where the unit starts outcropping (measured from left to right)
-
 # ------------------------------------------------------------------------------- #
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
@@ -129,6 +121,14 @@ animate = True # Animates transient cross sections
 # ------------------------------------------------------------------------------- #
 # --------------------------- GEOMETRY GENERATION ------------------------------- #
 # ------------------------------------------------------------------------------- #
+
+# Set synthetic geometry generation parameters
+geom_df = pd.read_excel(setup_file, sheet_name="geometry")
+outcrop_z = geom_df["outcrop_z"].to_numpy() # Elevation (Just used when SLOPE is set to False)
+outcrop_zmax = geom_df["outcrop_zmax"].to_numpy() # Elevation (Just used when SLOPE are set to True)
+outcrop_zmin = geom_df["outcrop_zmin"].to_numpy() # Elevation (Just used when SLOPE are set to True)
+base_thicknesses = geom_df["base_thicknesses"].to_numpy() # Layer thickness in meters
+outcrop_cells = geom_df["outcrop_cells"].to_numpy() # Cell ID where the unit starts outcropping (measured from left to right)
 
 # Create idomain, irch and recharge arrays
 epsilon = 0 # Minimum allowed cell thickness in meters
@@ -158,7 +158,6 @@ kh_array = modgeom6.compute_3Darray(kh, idomain)
 #plt.colorbar()  # Add color bar to show scale
 #plt.title('Recharge')
 #plt.show()
-
 
 # ------------------------------------------------------------------------------- #
 # ----------------------- RANDOM PARAMETER FIELDS ------------------------------- #

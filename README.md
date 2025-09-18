@@ -62,7 +62,7 @@ modplot6.plot_cross_section_array(gwf,
                       fontsize=14,
                       label="Model layes") 
 ```
-![Example geometry output](example_output_geometry.png)
+![Example geometry output](assets/example_output_geometry.png)
 
 
 ```python
@@ -98,7 +98,7 @@ modplot6.plot_cross_section_array(gwf,
                       fontsize=14,
                       label="Model layes") 
 ```
-![Example geometry output](example_output_geometry_2.png)
+![Example geometry output](assets/example_output_geometry_2.png)
 
 
 ## Contact
@@ -107,5 +107,12 @@ For questions, suggestions, or contributions, please contact:
 Carlos Felipe Marin Rivera  
 Bordeaux INP, Lab EPOC, Université de Bordeaux
 cmarinriver@bordeaux-inp.fr  
+
+<p float="left">
+  <img src="assets/logo_ensegid.jpg" height="100" style="margin-right:10px;" />
+  <img src="assets/logo_epoc.png" height="100" style="margin-right:10px;" />
+  <img src="assets/logo_ubordeaux.png" height="100" />
+</p>
+
 
 ---

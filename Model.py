@@ -93,27 +93,23 @@ sy = par_df_to_1Darray(par_df, "sy") # Specific yield (adimensional)
 ss = par_df_to_1Darray(par_df, "ss") # Specific storage (m-1)
 R = par_df_to_1Darray(par_df, "rech") # Recharge (m/d)
 
-# Set pumping wells
-q_values = [(-0, -2, -4, -6, -8),
-            (0,  -1, -5, -6, -10)] # Define the pumping rates to iterate over for sustainable yield estimation
-
 # Set model grid parameters
-nlay = 5 # Number of layers
-ncol = 600 # Number of columns
-nrow = 1 # Number of rows (single row for 2D cross section)
-length = 600000 # Total lenght of model in meters
-width = 1 # Total width of model in meters
-dcol = length/ncol # Column size in meters
-drow = width/nrow # Row size in meters
+grid_df = pd.read_excel(setup_file, sheet_name="grid")
+nlay = int(grid_df["nlay"][0]) # Number of layers
+ncol = int(grid_df["ncol"][0]) # Number of columns
+nrow = int(grid_df["nrow"][0]) # Number of rows (single row for 2D cross section)
+length = float(grid_df["lcol"][0]) # Total lenght of model in meters
+width = float(grid_df["lrow"][0]) # Total width of model in meters
+dcol = int(grid_df["dcol"][0]) # Column size in meters
+drow = int(grid_df["drow"][0]) # Row size in meters
 
 # Set synthetic geometry generation parameters
-epsilon = 0 # Minimum allowed cell thickness in meters
-outcrop_z = np.array([100, 150, 200, 250, 350]) # Elevation (Just used when SLOPE is set to False)
-outcrop_zmax = np.array([200, 300, 400, 500, 500]) # Elevation (Just used when SLOPE are set to True)
-outcrop_zmin = np.array([0, 200, 300, 400, 500]) # Elevation (Just used when SLOPE are set to True)
-base_thicknesses = np.array([300, 150, 200, 150, 200]) # Layer thickness in meters
-outcrop_cells = np.array([200, 150, 100, 50, 0]) 
-transition = 50 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
+geom_df = pd.read_excel(setup_file, sheet_name="geometry")
+outcrop_z = geom_df["outcrop_z"].to_numpy() # Elevation (Just used when SLOPE is set to False)
+outcrop_zmax = geom_df["outcrop_zmax"].to_numpy() # Elevation (Just used when SLOPE are set to True)
+outcrop_zmin = geom_df["outcrop_zmin"].to_numpy() # Elevation (Just used when SLOPE are set to True)
+base_thicknesses = geom_df["base_thicknesses"].to_numpy() # Layer thickness in meters
+outcrop_cells = geom_df["outcrop_cells"].to_numpy() # Cell ID where the unit starts outcropping (measured from left to right)
 
 # ------------------------------------------------------------------------------- #
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
@@ -124,9 +120,9 @@ heterogeneity = True # If True, generates random hydraulic conductivity fields
 
 STEADY = True # Runs the steady state model
 plot_steady = True # Plots steady state outputs
-iterate = True # Iterates pumping rates over steady state model. Uses q_values defined above
+iterate = False # Iterates pumping rates over steady state model. Uses q_values defined above
 
-TRANSIENT = True # Runs the transient model
+TRANSIENT = False # Runs the transient model
 plot_transient = True # Plots transient outputs
 animate = True # Animates transient cross sections
 
@@ -135,6 +131,8 @@ animate = True # Animates transient cross sections
 # ------------------------------------------------------------------------------- #
 
 # Create idomain, irch and recharge arrays
+epsilon = 0 # Minimum allowed cell thickness in meters
+transition = 50 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
 idomain = modgeom6.compute_idomain(nlay, nrow, ncol, outcrop_cells)
 ztop = modgeom6.compute_top(idomain, outcrop_z, transition=True, slope=True,
                             transition_cells=transition, transition_type="contain", 
@@ -426,8 +424,13 @@ if STEADY:
     # ----------------------------------------------------------------------------- #
 
     if iterate:
+        # Set pumping wells
+        q_df = pd.read_excel(setup_file, sheet_name="q_values", index_col=0)
+        q_values = [tuple(row) for row in q_df.iloc[:, :].values]
+        q_ref = tuple(q_df.loc[well_id][0] for well_id in q_df.index) # Reference pumping rates for each well (first value, generally zero)
+
         # Run the iterate_pumping_rate function 
-        modpump6.iterate_pumping_rate_steady(model_ws, sim, gwf, wel_spd, wel, q_values, (0,0), budget_file, nrow//2,
+        modpump6.iterate_pumping_rate_steady(model_ws, sim, gwf, wel_spd, wel, q_values, q_ref, budget_file, nrow//2,
                                         f"{figure_folder}",
                                         f"{output_folder}/{model_name}_modpump6_ss.csv",
                                         boundary_keywords = boundary_keywords,
@@ -469,10 +472,11 @@ if TRANSIENT:
     # ----------------------------- UPDATE PACKAGES ----------------------------------- #
 
     # Update time discretization
-    nper = 4
-    perlen = [0]*1 + [7560000]*1 + [19800]*1 + [360000]*1
-    nstp = [1]*1 + [210]*1 +[55]*1 + [100]*1
-    tsmult = [1]*1 + [1]*1 + [1]*1 + [1]*1
+    tdis_df = pd.read_excel(setup_file, sheet_name="tdis")
+    nper = len(tdis_df.index)
+    perlen = tdis_df["perlen"].tolist()
+    nstp = tdis_df["nstp"].tolist()
+    tsmult = tdis_df["tsmult"].tolist()
     perioddata = list(zip(perlen, nstp, tsmult))
     tdis = sim.tdis
     tdis.nper = nper

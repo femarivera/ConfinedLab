@@ -436,8 +436,9 @@ def compute_recharge(irch, R):
         raise ValueError("irch must be a 2D array (nrow, ncol).")
     R = np.asarray(R)
     nlay = np.max(irch) + 1
-    if R.shape[0] != nlay:
-        raise ValueError("R must have length equal to the number of layers in irch (max(irch)+1).")
+    #if R.shape[0] != nlay:
+    #    raise ValueError("R must have length equal to the number of layers in irch (max(irch)+1).") 
+    # Deactivate: This limits the generation of certain geometries where some layers might appear completely confined
     if np.any((irch < 0) | (irch >= nlay)):
         raise ValueError("All values in irch must be valid layer indices (0 to nlay-1).")
 

@@ -109,9 +109,9 @@ Bordeaux INP, Lab EPOC, Université de Bordeaux
 cmarinriver@bordeaux-inp.fr  
 
 <p float="left">
-  <img src="assets/logo_ensegid.jpg" height="100" style="margin-right:10px;" />
-  <img src="assets/logo_epoc.png" height="100" style="margin-right:10px;" />
-  <img src="assets/logo_ubordeaux.png" height="100" />
+  <img src="assets/logo_ensegid.jpg" height="50" style="margin-right:10px;" />
+  <img src="assets/logo_epoc.png" height="50" style="margin-right:10px;" />
+  <img src="assets/logo_ubordeaux.png" height="50" />
 </p>
 
 

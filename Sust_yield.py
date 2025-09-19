@@ -19,6 +19,8 @@ plot_folder = os.path.join(output_folder, "plots")
 os.makedirs(output_folder, exist_ok=True)
 os.makedirs(plot_folder, exist_ok=True)
 
+planning_horizons = [5, 10, 25, 50, 75, 100, 200, 500, 1000, 2000] # In years
+pump_start = 7550000 # In model totim units (days)
 constraints = [
     { 'label': "Spring discharge all zones", 'id': "drn_all", 'constrain': "DRN",
       'flow': "NET", 'zone': "ALL", 'threshold_type': "RELATIVE", 'threshold': 0.9,
@@ -41,15 +43,14 @@ constraints = [
       'reference': None, 'neighbour_zones': None, 'color' : "red" }
 ]
 
-planning_horizons = [25, 50, 75, 100, 200, 500, 1000]
-planning_horizons_totim = [val * 365 for val in planning_horizons]
+planning_horizons_totim = [val * 365 for val in planning_horizons] # Convert years to days
 qs_values = []
 for tp in planning_horizons_totim:
     qs, df, plot_file = modpump6.estimate_sustainable_yield(
         input_folder=input_folder,
         output_folder=output_folder,
         plot_folder=plot_folder,
-        pump_start=7550000,
+        pump_start=pump_start,
         planning_horizon=tp,
         constraints=constraints,
         csv_filename= f"flow_summary_{tp}.csv",

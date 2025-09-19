@@ -1,6 +1,4 @@
-<div style="display:flex; justify-content:center;">
-  <img src="assets/logo_confinedlab.png" height="100" />
-</div>
+![Example geometry output](assets/logo_confinedlab.png)
 
 # ConfinedLab
 

@@ -1,8 +1,5 @@
-
-![Example geometry output](assets/logo_confinedlab.png)
-
-<p float="center">
-  <img src="assets/logo_confinedlab.png" height="100" style="margin-right:10px;" />
+<p style="text-align:center;">
+  <img src="assets/logo_confinedlab.png" height="100" />
 </p>
 
 # ConfinedLab

@@ -431,12 +431,12 @@ if STEADY:
                              zone_array, 
                              nrow//2, 
                              f"{figure_folder}/cross_section_layers.png", 
-                             boundary_keywords=boundary_keywords + ["DRN"], 
+                             boundary_keywords= ["DRN"] + boundary_keywords, 
                              show = False, 
                              save = True, 
                              figsize=(19, 5),
                              fontsize=14,
-                             log=True,
+                             log=False,
                              label="Layer number", 
                              title="Model layers and boundary conditions")         
         

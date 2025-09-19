@@ -107,7 +107,7 @@ drow = int(grid_df["drow"][0]) # Row size in meters
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
 
-boundary_keywords = ["GHB", "WEL", "RIV", "DRN"] #List of boundaries used in the model for plotting
+boundary_keywords = ["GHB", "WEL", "RIV"] #List of boundaries used in the model for plotting
 heterogeneity = True # If True, generates random hydraulic conductivity fields
 
 STEADY = True # Runs the steady state model
@@ -273,6 +273,7 @@ oc = flopy.mf6.ModflowGwfoc(
 riv_cells1 = modbound6.extract_active_cells_n_range(irch, idomain, n=20, col_start=0, col_end=200)
 riv_cells2 = modbound6.extract_active_cells_n_range(irch, idomain, n=75, col_start=200, col_end=ncol-1)
 riv_cells = riv_cells1 + riv_cells2
+#riv_cells = riv_cells[:-1] # leave the last cell
 riv_spd1 = modbound6.create_riv_spd(
     riv_cells,
     ztop_array,
@@ -292,9 +293,9 @@ riv1 = flopy.mf6.ModflowGwfriv(gwf,
                               filename = f"{model_name}.riv")
 
 # Drain package
-drn_cells1 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 50, 99)
-drn_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 150, 199)
-drn_cells = drn_cells1 + drn_cells2
+drn_cells1 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 0, 202)
+#drn_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 150, 202)
+drn_cells = drn_cells1 #+ drn_cells2
 drn_spd = modbound6.create_drn_spd(
     drn_cells,
     ztop_array,
@@ -345,6 +346,7 @@ wel = flopy.mf6.ModflowGwfwel(gwf,
                               filename = f"{model_name}.wel")
 
 # General head boundary package
+# GHB in the lateral outflow
 ghb_1 = ztop_array[0,0,ncol-1]-(0.15*base_thicknesses[0])
 ghb_spd1 = {}
 ghb_spd1[0] = [((0, 0, ncol-1), ghb_1, kh[0]*base_thicknesses[0]*width, "Unconfined"),
@@ -352,6 +354,13 @@ ghb_spd1[0] = [((0, 0, ncol-1), ghb_1, kh[0]*base_thicknesses[0]*width, "Unconfi
                 ((2, 0, ncol-1), ghb_1, kh[2]*base_thicknesses[2]*width, "Caq1"),
                 ((3, 0, ncol-1), ghb_1, kh[3]*base_thicknesses[3]*width, "Aqt2"),
                 ((4, 0, ncol-1), ghb_1, kh[4]*base_thicknesses[4]*width, "Caq2")]
+
+# GHB in the top of first layer
+#ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2,col_start=ncol-100, col_end=ncol-1)
+#ghb_spd2 = {}
+#ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j]-(0.15*base_thicknesses[k]), kh[k]*dcol*width, "top_ghb") for (k, i, j) in ghb_cells2]
+#ghb_spd1[0].extend(ghb_spd2[0])
+
 ghb = flopy.mf6.ModflowGwfghb(gwf,
                                 pname="ghb",
                                 print_input=True,
@@ -394,6 +403,12 @@ if STEADY:
                                 flow_dir = False, surface = True, 
                                 show=False, save=True, figsize=(19, 4), layers = True, 
                                 title="Cross section - Steady state simulation")
+        modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
+                                f"{figure_folder}/cross_section_heads_qdir.png",
+                                boundary_keywords = boundary_keywords,
+                                flow_dir = True, surface = True, 
+                                show=False, save=True, figsize=(19, 4), layers = True, 
+                                title="Cross section - Steady state simulation")
 
         modplot6.plot_bud_sum_steady(budget_file, 
                                  f"{figure_folder}/bud_sum_ss.png", 
@@ -402,15 +417,28 @@ if STEADY:
         modplot6.plot_cross_section_array(gwf, 
                              kh_array, 
                              nrow//2, 
-                             f"{figure_folder}/cross_section_layers.png", 
-                             boundary_keywords=boundary_keywords, 
+                             f"{figure_folder}/cross_section_kh.png", 
+                             boundary_keywords=None, 
                              show = False, 
                              save = True, 
                              figsize=(19, 5),
                              fontsize=14,
                              log=True,
                              label="Hydraulic Conductivity (m/d)", 
-                             title="Model layers")        
+                             title="Model layers")
+
+        modplot6.plot_cross_section_array(gwf, 
+                             zone_array, 
+                             nrow//2, 
+                             f"{figure_folder}/cross_section_layers.png", 
+                             boundary_keywords= ["DRN"] + boundary_keywords, 
+                             show = False, 
+                             save = True, 
+                             figsize=(19, 5),
+                             fontsize=14,
+                             log=False,
+                             label="Layer number", 
+                             title="Model layers and boundary conditions")         
         
         # Plot heads with im.show
         #masked_head = np.where(idomain == 0, np.nan, head)
@@ -648,7 +676,13 @@ if TRANSIENT:
                                         flow_dir = False, surface = True, layers=True,
                                         show=False, save=True, figsize = (19, 4),
                                         title=f"Cross section at time {elapsed_time} days")
-
+        modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
+                                        f"{figure_folder}/cross_section_heads_t_qdir.png",
+                                        boundary_keywords = boundary_keywords,
+                                        flow_dir = True, surface = True, layers=True,
+                                        show=False, save=True, figsize = (19, 4),
+                                        title=f"Cross section at time {elapsed_time} days")
+        
         modtransient6.plot_head_time_series(head_file_t, 
                                             gwf, 
                                             f"{figure_folder}/head_ts.png",

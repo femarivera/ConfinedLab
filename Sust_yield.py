@@ -1,163 +1,118 @@
+
 import time
 start_time = time.time()
-import shutil
+import sys
 import os
-import subprocess
+
+# Import local modules
+sys.path.append('..')
+from mlibs import modpump6 # type: ignore
+
+# --------------------------------------------------------------------------------------- #
+# -------------------------- SUSTAINABLE YIELD ESTIMATION ------------------------------- #
+# --------------------------------------------------------------------------------------- #
+
+# Define paths
+input_folder = "C:/Users/cmarinriver/Projects/ConfinedLab/sust_yield_results/Summary_iterations"
+output_folder = "C:/Users/cmarinriver/Projects/ConfinedLab/sust_yield_results/Outputs"
+plot_folder = os.path.join(output_folder, "plots")
+os.makedirs(output_folder, exist_ok=True)
+os.makedirs(plot_folder, exist_ok=True)
+
+constraints = [
+    { 'label': "Spring discharge all zones", 'id': "drn_all", 'constrain': "DRN",
+      'flow': "NET", 'zone': "ALL", 'threshold_type': "RELATIVE", 'threshold': 0.9,
+      'reference': None, 'neighbour_zones': None, 'color' : "Purple" },
+
+    { 'label': "River discharge zone 1", 'id': "riv_1", 'constrain': "RIV",
+      'flow': "NET", 'zone': 1, 'threshold_type': "RELATIVE", 'threshold': 0.9,
+      'reference': None, 'neighbour_zones': None, 'color' : "Blue" },
+
+    { 'label': "River discharge zone 3", 'id': "riv_3", 'constrain': "RIV",
+      'flow': "NET", 'zone': 3, 'threshold_type': "RELATIVE", 'threshold': 0.9,
+      'reference': None, 'neighbour_zones': None, 'color' : "lightblue" },
+
+    { 'label': "Leakage zone 3", 'id': "leak_3", 'constrain': "LEAKAGE",
+      'flow': "NET", 'zone': 3, 'threshold_type': "ABSOLUTE", 'threshold': -2.5,
+      'reference': None, 'neighbour_zones': [2,4], 'color' : "orange" },
+
+    { 'label': "Lateral outflow zone 3", 'id': "ghb_3", 'constrain': "GHB",
+      'flow': "NET", 'zone': 3, 'threshold_type': "ABSOLUTE", 'threshold': 0,
+      'reference': None, 'neighbour_zones': None, 'color' : "red" }
+]
+
+planning_horizons = [25, 50, 75, 100, 200, 500, 1000]
+planning_horizons_totim = [val * 365 for val in planning_horizons]
+qs_values = []
+for tp in planning_horizons_totim:
+    qs, df, plot_file = modpump6.estimate_sustainable_yield(
+        input_folder=input_folder,
+        output_folder=output_folder,
+        plot_folder=plot_folder,
+        pump_start=7550000,
+        planning_horizon=tp,
+        constraints=constraints,
+        csv_filename= f"flow_summary_{tp}.csv",
+        plot_filename=f"yield_plot_{tp}.png"
+    )
+    print(f"Sustainable yield: {qs}")
+    print(df.head())
+    qs_values.append(qs)
+
+# Save summary of qs values
 import pandas as pd
 
-# --------------------------------------------------------------------------------------- #
-# ------------------------------- USER INPUTS ------------------------------------------- #
-# --------------------------------------------------------------------------------------- #
+qs_df = pd.DataFrame({"Planning_Horizon": planning_horizons, "Sustainable_Yield": qs_values})
+qs_df.to_csv(os.path.join(output_folder, "sustainable_yield_summary.csv"), index=False)
 
-setup_file = "C:/Users/cmarinriver/Projects/ConfinedLab/setup.xlsx" # Absolute paths
-model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py" # Absolute paths
+import matplotlib.pyplot as plt
 
-mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab" # Absolute paths
-output_dir = "C:/Users/cmarinriver/Projects/ConfinedLab/sust_yield_results" # Absolute paths
+def plot_df(
+    qs,
+    title="Sustainable Yield Plot",
+    xlabel="Pumping Rate [m³/day]",
+    ylabel="Flow Rate [m³/day]",
+    legend_label="Qs curve",
+    figsize=(8,6),
+    save_path=None
+):
+    """
+    Plot a 2-column DataFrame: first column = x, second column = y.
+    """
+    # Extract columns
+    x = qs.iloc[:, 0]
+    y = qs.iloc[:, 1]
 
-# Define model workspace name subscript (used to taylor output paths)
-model_ws_name = "mf" 
+    # Create figure
+    fig, ax = plt.subplots(figsize=figsize)
 
-# Set output file basenames as written by the model output (not full paths)
-model_name = 'DEESACt'
-budget_file_name = f"{model_name}_budget.csv"
-zonebud_file_name = "zonebud.csv"
-head_file_name = "head_obs_t.csv"
+    # Plot with scientific styling
+    ax.plot(x, y, marker='o', linestyle='-', color='navy', label=legend_label)
 
-# --------------------------------------------------------------------------------------- #
-# ------------------------------- PREPARE ITERATION FILE -------------------------------- #
-# --------------------------------------------------------------------------------------- #
+    # Titles and labels
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xlabel(xlabel, fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
 
-folder, filename = os.path.split(model_file)
-name, ext = os.path.splitext(filename)
-new_filename = f"{name}_it{ext}"
-new_file_path = os.path.join(folder, new_filename)
+    # Grid and legend
+    ax.grid(True, which="both", linestyle="--", linewidth=0.7, alpha=0.7)
+    ax.legend(fontsize=10)
 
-# Copy the original file
-shutil.copy(model_file, new_file_path)
+    # Scientific notation for axes if values are large/small
+    #ax.ticklabel_format(style="sci", axis="both", scilimits=(0,0))
 
-# Read and modify the new file with placeholders
-with open(new_file_path, "r") as f:
-    lines = f.readlines()
+    # Tight layout
+    plt.tight_layout()
 
-setup_replaced = False
-for i, line in enumerate(lines):
-    if "sys.path.append('..')" in line:
-        lines[i] = f"sys.path.append(r'{mlibs_path}')\n"
-    if not setup_replaced and line.strip().startswith("setup_file ="):
-        lines[i] = f"setup_file = r'{setup_file}' # Excel file containing model setup parameters\n"
-        setup_replaced = True
+    # Save or show
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    else:
+        plt.show()
 
-# Save back the modified file
-with open(new_file_path, "w") as f:
-    f.writelines(lines)
-print("Iteration script created at:", new_file_path)
-
-# --------------------------------------------------------------------------------------- #
-# ------------------------------- UPDATE AND RUN MODEL ---------------------------------- #
-# --------------------------------------------------------------------------------------- #
-
-# Load setup
-# file contining the pumping rates used by modflow6
-well_df = pd.read_excel(setup_file, sheet_name="wells")
-
-# q-values for each iteration
-q_df = pd.read_excel(setup_file, sheet_name="q_values_tr")       
-
-# Identify iteration columns (all except well_id + time)
-iter_cols = [c for c in q_df.columns if c not in ["well_id", "time", "comment"]]
-n_iterations = len(iter_cols)
-
-for i, col in enumerate(iter_cols, start=1):
-
-    print(f"\n--- Running iteration {i}/{n_iterations} with {col} ---")
-
-    # ------------------------------------------------------------------------------------- #
-    # -------------------------------- PREPARE SETUP FILE --------------------------------- #
-    # ------------------------------------------------------------------------------------- #
-
-    # Merge well_df with the selected q column
-    merged = well_df.drop(columns=["q"]).merge(
-        q_df[["well_id", "time", col]],
-        on=["well_id", "time"],
-        how="left")
-    
-    # Rename current iteration q value column to "q"
-    merged = merged.rename(columns={col: "q"})
-
-    # Write updated wells sheet back to Excel (overwrite only that sheet)
-    with pd.ExcelWriter(setup_file, mode="a", if_sheet_exists="replace") as writer:
-        merged.to_excel(writer, sheet_name="wells", index=False)
-
-    # --- Run your model here ---
-    # run_model(setup_file)
-
-    # --- Optionally, save results tagged by iteration ---
-    # save_results(iteration=i)
-
-    # --------------------------------------------------------------------------------------- #
-    # ------------------------------- ITERATE MODEL ----------------------------------------- #
-    # --------------------------------------------------------------------------------------- #
-
-    # Create a unique model workspace directory name based on the parameter value
-    model_ws = os.path.join(output_dir, f"{model_ws_name}_it_{col}")
-    
-    # Create the directory for model_ws if it doesn't exist
-    os.makedirs(model_ws, exist_ok=True)
-    
-    # Copy the iteration script into the unique model workspace folder and get the path
-    shutil.copy(new_file_path, model_ws)
-    script_path = os.path.join(model_ws, new_filename)
-    
-    # Run the script inside the unique model workspace folder
-    # You can use subprocess to execute the script in that directory
-    subprocess.run(["python", script_path], cwd=model_ws)
-
-    print(f"Model run completed for iteration {i} with q={col}, model_ws={model_ws}")
-
-
-# --------------------------------------------------------------------------------------- #
-# ------------------------------- MANAGE OUTPUT FILES ----------------------------------- #
-# --------------------------------------------------------------------------------------- #
-
-# Define a destination directory to summarize results
-results_folder = os.path.join(output_dir, "Summary_Results")
-os.makedirs(results_folder, exist_ok=True)
-
-# Loop through the sub-folders in the output directory to get relevant files
-for folder_name in os.listdir(output_dir):
-    # Check if the folder matches the pattern "model_ws_name_it_xxxx"
-    if folder_name.startswith(f"{model_ws_name}_it_"):
-        folder_path = os.path.join(output_dir, folder_name)
-        mf_path = os.path.join(folder_path, model_ws_name, "output")
-
-        # Only proceed if the unique model workspace subfolder exists
-        if os.path.exists(mf_path):
-            # Extract the "parameter_xxxx" part from the folder name
-            code = folder_name.split(f"{model_ws_name}_")[1]
-
-            # Define the source files
-            budget_file = os.path.join(mf_path, budget_file_name)
-            zonebud_file = os.path.join(mf_path, zonebud_file_name)
-            head_obs_file = os.path.join(mf_path, head_file_name)
-
-            # Define the destination files
-            budget_dest = os.path.join(results_folder, f"{os.path.splitext(budget_file_name)[0]}_{code}.csv")
-            zonebud_dest = os.path.join(results_folder, f"{os.path.splitext(zonebud_file_name)[0]}_{code}.csv")
-            head_obs_dest = os.path.join(results_folder, f"{os.path.splitext(head_file_name)[0]}_{code}.csv")
-
-            # Copy files if they exist
-            if os.path.exists(budget_file):
-                shutil.copy(budget_file, budget_dest)
-                print(f"Copied {budget_file} to {budget_dest}")
-
-            if os.path.exists(zonebud_file):
-                shutil.copy(zonebud_file, zonebud_dest)
-                print(f"Copied {zonebud_file} to {zonebud_dest}")
-
-            if os.path.exists(head_obs_file):
-                shutil.copy(head_obs_file, head_obs_dest)
-                print(f"Copied {head_obs_file} to {head_obs_dest}")
-
-end_time = time.time()
-print(f"Total execution time: {end_time - start_time:.2f} seconds")
+plot_df(
+    qs_df,
+    title="Sustainable Yield vs Planning Horizon",
+    xlabel="Planning Horizon [years]",
+    ylabel="Sustainable yield [m³/day]",
+    save_path=plot_folder + "/sustainable_yield_vs_horizon.png")

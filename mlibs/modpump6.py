@@ -392,3 +392,179 @@ def iterate_pumping_rate_steady(model_ws,
 
         df_results.to_csv(csv_output_path, index=False)
         print(f"Pumping analysis results saved to {csv_output_path}")
+
+def estimate_sustainable_yield(
+    input_folder: str,
+    output_folder: str,
+    plot_folder: str,
+    pump_start: float,
+    planning_horizon: float,
+    constraints: list,
+    csv_filename: str = "flow_summary.csv",
+    plot_filename: str = "Q_vs_flow.png"
+):
+    """
+    Generalized sustainable yield estimator using zonebudget outputs and flexible constraints.
+    """
+    import os
+    import pandas as pd
+    import matplotlib.pyplot as plt
+
+    # --- helper: crossing finder ---
+    def find_threshold_crossing(x, y, threshold=0):
+        for i in range(len(y) - 1):
+            if (y[i] - threshold) * (y[i + 1] - threshold) < 0:
+                x0, x1 = x[i], x[i + 1]
+                y0, y1 = y[i] - threshold, y[i + 1] - threshold
+                return x0 - y0 * (x1 - x0) / (y1 - y0)
+        return None
+
+    # --- compute target time ---
+    time_target = pump_start + planning_horizon
+
+    # storage dict: {constraint_id: [(Q, value), ...]}
+    results = {c["id"]: [] for c in constraints}
+
+    # --- loop over files ---
+    for file_name in os.listdir(input_folder):
+        if not (file_name.startswith("zonebud_") and file_name.endswith(".csv")):
+            continue
+
+        try:
+            code = float(file_name.split("zonebud_it_qv_")[1].split(".csv")[0][1:])
+        except (ValueError, IndexError):
+            continue
+
+        file_path = os.path.join(input_folder, file_name)
+        data = pd.read_csv(file_path)
+
+        for c in constraints:
+            cid = c["id"]
+            zone = c["zone"]
+            constr = c["constrain"].upper()
+            flow = c["flow"].upper()
+
+            # --- select subset of data ---
+            subset = data if zone == "ALL" else data[data["zone"] == zone]
+
+            value = None
+
+            # --- leakage special case ---
+            if constr == "LEAKAGE":
+                required_cols = set(
+                    [f"TO ZONE {z}" for z in c["neighbour_zones"]] +
+                    [f"FROM ZONE {z}" for z in c["neighbour_zones"]] +
+                    ["totim"]
+                )
+                if not required_cols.issubset(subset.columns):
+                    continue
+                closest_idx = (subset["totim"] - time_target).abs().idxmin()
+                row = subset.loc[closest_idx]
+
+                to_sum = sum(row[f"TO ZONE {z}"] for z in c["neighbour_zones"])
+                from_sum = sum(row[f"FROM ZONE {z}"] for z in c["neighbour_zones"])
+
+                if flow == "NET":
+                    value = to_sum - from_sum
+                elif flow == "OUT":
+                    value = to_sum
+                elif flow == "IN":
+                    value = from_sum
+
+            # --- generic constraints (DRN, RIV, GHB, etc.) ---
+            else:
+                out_col, in_col = f"{constr}-OUT", f"{constr}-IN"
+                if not {"totim"}.issubset(subset.columns):
+                    continue
+
+                if zone == "ALL":
+                    closest_idx = (subset["totim"] - time_target).abs().idxmin()
+                    closest_time = subset.loc[closest_idx, "totim"]
+                    time_filtered = subset[subset["totim"] == closest_time]
+
+                    if flow == "OUT" and out_col in subset.columns:
+                        value = time_filtered[out_col].sum()
+                    elif flow == "IN" and in_col in subset.columns:
+                        value = time_filtered[in_col].sum()
+                    elif flow == "NET" and {out_col, in_col}.issubset(subset.columns):
+                        value = time_filtered[out_col].sum() - time_filtered[in_col].sum()
+
+                else:
+                    if flow == "OUT" and out_col in subset.columns:
+                        closest_idx = (subset["totim"] - time_target).abs().idxmin()
+                        value = subset.loc[closest_idx, out_col].sum()
+                    elif flow == "IN" and in_col in subset.columns:
+                        closest_idx = (subset["totim"] - time_target).abs().idxmin()
+                        value = subset.loc[closest_idx, in_col].sum()
+                    elif flow == "NET" and {out_col, in_col}.issubset(subset.columns):
+                        closest_idx = (subset["totim"] - time_target).abs().idxmin()
+                        row = subset.loc[closest_idx]
+                        value = row[out_col].sum() - row[in_col].sum()
+
+            if value is not None:
+                results[cid].append((code, value))
+
+    # --- sort values by pumping rate ---
+    for cid in results:
+        results[cid].sort(key=lambda x: x[0])
+
+    # --- build DataFrame ---
+    pumping_rates = sorted({x[0] for vals in results.values() for x in vals})
+    df = pd.DataFrame({"PumpingRate": pumping_rates})
+    for c in constraints:
+        cid = c["id"]
+        temp = pd.DataFrame(results[cid], columns=["PumpingRate", cid])
+        df = pd.merge(df, temp, on="PumpingRate", how="left")
+
+    # --- threshold evaluation ---
+    thresholds = {}
+    crossings = {}
+    for c in constraints:
+        cid = c["id"]
+        vals = df[cid].dropna().values
+        if len(vals) == 0:
+            continue
+
+        if c["threshold_type"].upper() == "ABSOLUTE":
+            thresholds[cid] = c["threshold"]
+        elif c["threshold_type"].upper() == "RELATIVE":
+            ref = c["reference"] if c["reference"] is not None else vals[0]
+            thresholds[cid] = ref * c["threshold"]
+
+        crossings[cid] = find_threshold_crossing(df["PumpingRate"].values, df[cid].values, thresholds[cid])
+
+    # --- determine sustainable yield ---
+    qs_candidates = [v for v in crossings.values() if v is not None]
+    qs_value = min(qs_candidates) if qs_candidates else None
+
+    # --- plot ---
+    fig, ax = plt.subplots(figsize=(14, 12))
+    for c in constraints:
+        cid = c["id"]
+        color = c["color"]
+        ax.plot(df["PumpingRate"], df[cid], marker="o", label=c["label"], color=color)
+        if cid in thresholds:
+            ax.axhline(thresholds[cid], linestyle="--", label=f"{c['label']} threshold", color=color)
+
+    if qs_value is not None:
+        ax.axvline(qs_value, color="g", linestyle="--")
+        ax.text(qs_value, df.drop("PumpingRate", axis=1).max().max(),
+                f"Qs < {qs_value:.2f}", color="g", fontsize=14, ha="right",
+                bbox=dict(facecolor="white", alpha=0.7))
+
+    ax.set_title(f"Sustainable yield estimation - {planning_horizon} time units after pumping")
+    ax.set_xlabel("Pumping Rate")
+    ax.set_ylabel("Flow Rate")
+    ax.legend()
+    ax.grid(True)
+
+    os.makedirs(plot_folder, exist_ok=True)
+    plot_path = os.path.join(plot_folder, plot_filename)
+    plt.savefig(plot_path, bbox_inches="tight")
+    plt.close()
+
+    # --- save CSV ---
+    os.makedirs(output_folder, exist_ok=True)
+    df.to_csv(os.path.join(output_folder, csv_filename), index=False)
+
+    return qs_value, df, plot_path

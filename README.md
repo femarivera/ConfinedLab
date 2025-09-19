@@ -1,6 +1,6 @@
-<p style="text-align:center;">
+<div style="display:flex; justify-content:center;">
   <img src="assets/logo_confinedlab.png" height="100" />
-</p>
+</div>
 
 # ConfinedLab
 

@@ -1,3 +1,6 @@
+
+![Example geometry output](assets/logo_confinedlab.png)
+
 # ConfinedLab
 
 **ConfinedLab** is a modular Python toolkit for generating, simulating, and analyzing synthetic multilayer groundwater flow systems using MODFLOW 6. 

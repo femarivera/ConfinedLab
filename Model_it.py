@@ -737,7 +737,7 @@ if TRANSIENT:
                                         boundary_keywords = boundary_keywords,
                                         flow_dir = False, surface = True, layers=True,
                                         show=False, save=True, figsize = (19, 4), 
-                                        gif_start=0, gif_step=20, duration=250)
+                                        gif_start=0, gif_step=10, duration=250)
 
 end_time = time.time()
 print(f"Total execution time: {end_time - start_time:.2f} seconds")

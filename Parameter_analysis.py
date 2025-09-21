@@ -20,9 +20,7 @@ model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py" # Absolute pat
 mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab" # Absolute paths
 
 output_dir = "C:/Users/cmarinriver/Projects/ConfinedLab/sust_yield_results" # Absolute paths
-plot_dir = os.path.join(output_dir, "plots")
 os.makedirs(output_dir, exist_ok=True)
-os.makedirs(plot_dir, exist_ok=True)
 
 # Define model workspace name subscript (used to taylor output paths)
 model_ws_name = "mf" 
@@ -129,7 +127,7 @@ for i, col in enumerate(iter_cols, start=1):
 # ------------------------------- MANAGE OUTPUT FILES ----------------------------------- #
 # --------------------------------------------------------------------------------------- #
 
-# Define a destination directory to summarize results
+# Define a destination directory to summarize results of the iterations
 results_folder = os.path.join(output_dir, "Summary_iterations")
 os.makedirs(results_folder, exist_ok=True)
 

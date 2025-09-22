@@ -21,21 +21,21 @@ ESTIMATE = True  # Set to True to run the sustainable yield estimation
 setup_file = r'C:/Users/cmarinriver/Projects/ConfinedLab/setup.xlsx' # Excel file containing model setup parameters
 model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py" 
 
-# Set path to parent dir containing mlibs (absolute path)
+# Set path to parent dir containing mlibs modules (absolute path)
 mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab"
 
-# Define a general output folder for all results (absolute path)
-output_folder = r'C:/Users/cmarinriver/Projects/ConfinedLab/par_results/parv_02' # Output folder for each parameter iteration results
+# Define a general output folder for all results of sustainable yield estimation (absolute path)
+output_folder = r'C:/Users/cmarinriver/Projects/ConfinedLab/par_results/parv_06' # Output folder for each parameter iteration results
 
-# Define output directories for yield iteration runs and for a summary of the iterations (absolute paths)
+# Define output directories for all yield iteration runs, for a summary of the yield iterations, and for generated plots (absolute paths)
 iterations_output_dir = os.path.join(output_folder, "yield_iterations")
 summary_dir = os.path.join(iterations_output_dir, "summary_iterations")
 plot_folder = os.path.join(output_folder, "plots")
 
-# Define model workspace name subscript (used to taylor output paths for each model run)
+# Define model workspace name subscript (used to taylor output paths for each yield iteration)
 model_ws_name = "mf" 
 
-# Set output file basenames as written by the model output (not full paths, just basenames)
+# Set output file basenames as written by the modflow model output
 model_name = 'DEESACt'
 budget_file_name = f"{model_name}_budget.csv"
 zonebud_file_name = "zonebud.csv"
@@ -45,12 +45,12 @@ head_file_name = "head_obs_t.csv"
 # ------------------------------- INPUTS ESTIMATION ------------------------------------- #
 # --------------------------------------------------------------------------------------- #
 
-# Define paths to input and ouput for plots (absolute paths)
-input_folder = summary_dir # Takes as input the path to the summary of the iterations
+# Define paths to inputs of the sustainable yield estimation
+input_folder = summary_dir # Takes as input the path to the summary of the yield iterations
 
-# Define start of pumping time, planning horizons and constraints
+# Define start time of pumping, planning horizons and constraints
 planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000] # In years
-pump_start = 27000 # In model totim units (days)
+pump_start = 7587000 # In model totim units (days)
 constraints = [
     { 'label': "Spring discharge all zones", 'id': "drn_all", 'constrain': "DRN",
     'flow': "NET", 'zone': "ALL", 'threshold_type': "RELATIVE", 'threshold': 0.9,
@@ -103,7 +103,8 @@ if ESTIMATE:
             constraints=constraints,
             csv_filename= f"Q_vs_flow_{int(tp/360)}.csv",
             plot_filename=f"Q_vs_flow_{int(tp/360)}.png",
-            plot_units="years")
+            plot_units="years",
+            conversion_factor=360)
         qs_values.append(qs)
         print(f"Sustainable yield: {qs}")
         print(df.head())

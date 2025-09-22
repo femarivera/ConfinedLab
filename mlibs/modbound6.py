@@ -469,3 +469,54 @@ def extract_active_cells_n_range(irch, idomain, n, col_start, col_end):
                 active_cells.append((int(k), i, int(j)))
 
     return active_cells
+
+def extract_active_cells_zone(irch, idomain, zone_array, row_start, row_end, col_start, col_end, zones):
+    """
+    Extract active cell indices (k, i, j) from irch, idomain, and zone_array,
+    within a specified submatrix and filtered by specific zone numbers.
+
+    Parameters:
+        irch: 2D array-like of shape (nrow, ncol) with layer indices (0 to nlay-1).
+        idomain: 3D array-like of shape (nlay, nrow, ncol) with values 1 (active) or 0 (inactive).
+        zone_array: 3D array-like of shape (nlay, nrow, ncol) with integer zone numbers.
+        row_start (int): Starting row index (inclusive).
+        row_end (int): Ending row index (inclusive).
+        col_start (int): Starting column index (inclusive).
+        col_end (int): Ending column index (inclusive).
+        zones (list or set): List of zone numbers to include.
+
+    Returns:
+        list of (k, i, j) indices for active cells within the specified submatrix
+        that belong to the specified zones.
+    """
+    import numpy as np
+
+    nrow, ncol = irch.shape
+    nlay, idom_nrow, idom_ncol = idomain.shape
+    if (idom_nrow, idom_ncol) != (nrow, ncol):
+        raise ValueError(f"idomain shape {idomain.shape} incompatible with irch shape {irch.shape}")
+    if zone_array.shape != idomain.shape:
+        raise ValueError(f"zone_array shape {zone_array.shape} must match idomain shape {idomain.shape}")
+    if not (0 <= row_start <= row_end < nrow):
+        raise ValueError(f"Row range {row_start}-{row_end} out of bounds (0–{nrow-1})")
+    if not (0 <= col_start <= col_end < ncol):
+        raise ValueError(f"Column range {col_start}-{col_end} out of bounds (0–{ncol-1})")
+
+    active_cells = []
+
+    for i in range(row_start, row_end + 1):
+        j_vals = np.arange(col_start, col_end + 1)
+        k_vals = irch[i, j_vals]
+        # mask of active cells in idomain
+        active_mask = idomain[k_vals, i, j_vals] == 1
+        # mask of cells in specified zones
+        zone_mask = np.isin(zone_array[k_vals, i, j_vals], zones)
+        # combined mask
+        mask = active_mask & zone_mask
+
+        for k, j, include in zip(k_vals, j_vals, mask):
+            if include:
+                active_cells.append((int(k), i, int(j)))
+
+    return active_cells
+

@@ -562,7 +562,8 @@ def estimate_sustainable_yield(
     constraints: list,
     csv_filename: str = "flow_summary.csv",
     plot_filename: str = "Q_vs_flow.png",
-    plot_units: str = None):
+    plot_units: str = None,
+    conversion_factor: float = 1.0):
 
     """
     Estimates the sustainable yield for a groundwater system using MODFLOW 6 zonebud simulation results.
@@ -598,6 +599,7 @@ def estimate_sustainable_yield(
         csv_filename (str): Name of the output CSV file summarizing results.
         plot_filename (str): Name of the output plot file.
         plot_units (str, optional): "years" or None. If "years", it assumes model time units are days and converts to years for plotting.
+        conversion_factor (float): Factor to convert time units to years, used for plotting.
         If None, does not customize model time units.
 
     Returns:
@@ -782,7 +784,7 @@ def estimate_sustainable_yield(
                 bbox=dict(facecolor="white", alpha=0.7))
 
     if plot_units == "years":
-        ax.set_title(f"Sustainable yield estimation - {int(planning_horizon/365)} {plot_units} after pumping")
+        ax.set_title(f"Sustainable yield estimation - {int(planning_horizon/conversion_factor)} {plot_units} after pumping")
     else:
         ax.set_title(f"Sustainable yield estimation - {planning_horizon} time units after pumping")
 

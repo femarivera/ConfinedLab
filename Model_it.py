@@ -107,10 +107,10 @@ drow = int(grid_df["drow"][0]) # Row size in meters
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
 
-boundary_keywords = ["GHB", "WEL", "RIV"] #List of boundaries used in the model for plotting
+boundary_keywords = ["GHB", "WEL"] #List of boundaries used in the model for plotting
 heterogeneity = True # If True, generates random hydraulic conductivity fields
 
-STEADY = False # Runs the steady state model
+STEADY = True # Runs the steady state model
 plot_steady = True # Plots steady state outputs
 iterate = False # Iterates pumping rates over steady state model. Uses q_values defined above
 
@@ -270,30 +270,30 @@ oc = flopy.mf6.ModflowGwfoc(
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
 # River package
-riv_cells1 = modbound6.extract_active_cells_n_range(irch, idomain, n=20, col_start=0, col_end=200)
-riv_cells2 = modbound6.extract_active_cells_n_range(irch, idomain, n=75, col_start=200, col_end=ncol-1)
-riv_cells = riv_cells1 + riv_cells2
+#riv_cells1 = modbound6.extract_active_cells_n_range(irch, idomain, n=20, col_start=0, col_end=200)
+#riv_cells2 = modbound6.extract_active_cells_n_range(irch, idomain, n=75, col_start=200, col_end=ncol-1)
+#riv_cells = riv_cells1 + riv_cells2
 #riv_cells = riv_cells[:-1] # leave the last cell
-riv_spd1 = modbound6.create_riv_spd(
-    riv_cells,
-    ztop_array,
-    thickness_array,
-    np.array([kh[0]/100,kh[1]*10,kh[2]/10,kh[3]*10,kh[4]/10]),
-    drow,
-    river_width=1,
-    riverbed_thickness=1,
-    stage_type="proportion",
-    a=0.20,
-    b=1,
-    conc=None)
-riv1 = flopy.mf6.ModflowGwfriv(gwf, 
-                              pname = "riv",
-                              save_flows = True,
-                              stress_period_data = riv_spd1,
-                              filename = f"{model_name}.riv")
+#riv_spd1 = modbound6.create_riv_spd(
+#    riv_cells,
+#    ztop_array,
+#    thickness_array,
+#    np.array([kh[0]/100,kh[1]*10,kh[2]/10,kh[3]*10,kh[4]/10]),
+#    drow,
+#    river_width=1,
+#    riverbed_thickness=1,
+#    stage_type="proportion",
+#    a=0.20,
+#    b=1,
+#    conc=None)
+#riv1 = flopy.mf6.ModflowGwfriv(gwf, 
+#                              pname = "riv",
+#                              save_flows = True,
+#                              stress_period_data = riv_spd1,
+#                              filename = f"{model_name}.riv")
 
 # Drain package
-drn_cells1 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 0, 202)
+drn_cells1 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 0, ncol-1)
 #drn_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 150, 202)
 drn_cells = drn_cells1 #+ drn_cells2
 drn_spd = modbound6.create_drn_spd(
@@ -521,7 +521,7 @@ if TRANSIENT:
     sto = flopy.mf6.ModflowGwfsto(
         gwf,
         pname="sto",
-        iconvert = 1, #Unonfined/confined mixed storage is used
+        iconvert = 1, #Unconfined/confined mixed storage is used
         sy=sy, #Specific yield
         ss=ss, #If not specified, flopy uses default value of 1e-5 m-1
         steady_state={0: True}, # First stress period is steady state

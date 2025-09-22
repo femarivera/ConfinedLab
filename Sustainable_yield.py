@@ -50,7 +50,7 @@ input_folder = summary_dir # Takes as input the path to the summary of the yield
 
 # Define start time of pumping, planning horizons and constraints
 planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000] # In years
-pump_start = 27000 # In model totim units (days)
+pump_start = 7587000 # In model totim units (days)
 constraints = [
     { 'label': "Spring discharge all zones", 'id': "drn_all", 'constrain': "DRN",
     'flow': "NET", 'zone': "ALL", 'threshold_type': "RELATIVE", 'threshold': 0.9,
@@ -103,7 +103,8 @@ if ESTIMATE:
             constraints=constraints,
             csv_filename= f"Q_vs_flow_{int(tp/360)}.csv",
             plot_filename=f"Q_vs_flow_{int(tp/360)}.png",
-            plot_units="years")
+            plot_units="years",
+            conversion_factor=360)
         qs_values.append(qs)
         print(f"Sustainable yield: {qs}")
         print(df.head())

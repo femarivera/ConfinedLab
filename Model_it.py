@@ -110,7 +110,7 @@ drow = int(grid_df["drow"][0]) # Row size in meters
 boundary_keywords = ["GHB", "WEL", "RIV"] #List of boundaries used in the model for plotting
 heterogeneity = True # If True, generates random hydraulic conductivity fields
 
-STEADY = True # Runs the steady state model
+STEADY = False # Runs the steady state model
 plot_steady = True # Plots steady state outputs
 iterate = False # Iterates pumping rates over steady state model. Uses q_values defined above
 
@@ -452,7 +452,7 @@ if STEADY:
 
     if iterate:
         # Set pumping wells
-        q_df = pd.read_excel(setup_file, sheet_name="q_values", index_col=0)
+        q_df = pd.read_excel(setup_file, sheet_name="q_values_st", index_col=0)
         q_values = [tuple(row) for row in q_df.iloc[:, :].values]
         q_ref = tuple(q_df.loc[well_id][0] for well_id in q_df.index) # Reference pumping rates for each well (first value, generally zero)
 
@@ -509,7 +509,7 @@ if TRANSIENT:
     tdis.nper = nper
     tdis.perioddata = perioddata
 
-    # Update the initial conditions
+    # Update the initial conditions (this block is ignored since steady_state={0: True} in the storage package)
     ic = gwf.ic
     if STEADY:
         ic.strt = steady_state_heads
@@ -524,7 +524,7 @@ if TRANSIENT:
         iconvert = 1, #Unonfined/confined mixed storage is used
         sy=sy, #Specific yield
         ss=ss, #If not specified, flopy uses default value of 1e-5 m-1
-        steady_state={0: True},
+        steady_state={0: True}, # First stress period is steady state
         transient={1: True}, 
         filename=f"{model_name_tr}.sto")
 
@@ -534,6 +534,7 @@ if TRANSIENT:
     oc.budget_filerecord = f"output/{model_name_tr}.cbb"
     oc.budgetcsv_filerecord = f"output/{model_name_tr}_budget.csv"
     oc.filename = f"{model_name_tr}.oc"
+
     # ---------------------------- UPDATE TRANSIENT BOUNDARY CONDITIONS -------------------------- #
     # ---------------------------- Update transient recharge package
     rch = flopy.mf6.ModflowGwfrcha(gwf, 
@@ -650,7 +651,7 @@ if TRANSIENT:
         
         # Select time step, period, and layer to plot
         ts_num = 0
-        sp_num = nper-1 
+        sp_num = nper - 1 
         layer = 0
         elapsed_time = modtransient6.elapsed_time(perioddata, sp_num, ts_num)
 

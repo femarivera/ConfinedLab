@@ -14,102 +14,82 @@ from mlibs import modpump6 # type: ignore
 # ------------------------------- USER INPUTS ------------------------------------------- #
 # --------------------------------------------------------------------------------------- #
 
+# Set paths to setup add model files (absolute paths)
 setup_file = "C:/Users/cmarinriver/Projects/ConfinedLab/setup.xlsx" # Absolute paths
-model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py" # Absolute paths
+sust_yield_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Sustainable_yield.py" # Absolute paths
 
+# Set path to parent dir containing mlibs modules (absolute path)
 mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab" # Absolute paths
 
-output_dir = "C:/Users/cmarinriver/Projects/ConfinedLab/sust_yield_results" # Absolute paths
-os.makedirs(output_dir, exist_ok=True)
-
-# Define model workspace name subscript (used to taylor output paths)
-model_ws_name = "mf" 
-
-# Set output file basenames as written by the model output (not full paths)
-model_name = 'DEESACt'
-budget_file_name = f"{model_name}_budget.csv"
-zonebud_file_name = "zonebud.csv"
-head_file_name = "head_obs_t.csv"
+# Define a general output folder for all results of the parameter analysis (absolute path)
+output_folder = "C:/Users/cmarinriver/Projects/ConfinedLab/par_results" # Absolute paths
 
 # --------------------------------------------------------------------------------------- #
 # ------------------------------- PREPARE ITERATION FILE -------------------------------- #
 # --------------------------------------------------------------------------------------- #
+os.makedirs(output_folder, exist_ok=True)
 
-folder, filename = os.path.split(model_file)
+folder, filename = os.path.split(sust_yield_file)
 name, ext = os.path.splitext(filename)
 new_filename = f"{name}_it{ext}"
 new_file_path = os.path.join(folder, new_filename)
 
 # Copy the original file
-shutil.copy(model_file, new_file_path)
-
-# Read and modify the new file with placeholders
-with open(new_file_path, "r") as f:
-    lines = f.readlines()
-
-setup_replaced = False
-for i, line in enumerate(lines):
-    if "sys.path.append('..')" in line:
-        lines[i] = f"sys.path.append(r'{mlibs_path}')\n"
-    if not setup_replaced and line.strip().startswith("setup_file ="):
-        lines[i] = f"setup_file = r'{setup_file}' # Excel file containing model setup parameters\n"
-        setup_replaced = True
-
-# Save back the modified file
-with open(new_file_path, "w") as f:
-    f.writelines(lines)
-print("Iteration script created at:", new_file_path)
+shutil.copy(sust_yield_file, new_file_path)
 
 # --------------------------------------------------------------------------------------- #
-# ------------------------------- UPDATE AND RUN MODEL ---------------------------------- #
+# ------------------------- UPDATE PARAMETERS AND SCRIPT FILE --------------------------- #
 # --------------------------------------------------------------------------------------- #
 
-# Load setup
-# file contining the pumping rates used by modflow6
-well_df = pd.read_excel(setup_file, sheet_name="wells")
+# Open file contining the parameters used by modflow6
+par_df = pd.read_excel(setup_file, sheet_name="parameters", index_col=0)
 
-# q-values for each iteration
-q_df = pd.read_excel(setup_file, sheet_name="q_values_tr")       
+# Open file with the parameter values for for each iteration
+par_val_df = pd.read_excel(setup_file, sheet_name="parameter_analysis", index_col=0)
 
-# Identify iteration columns (all except well_id + time)
-iter_cols = [c for c in q_df.columns if c not in ["well_id", "time", "comment"]]
+# Identify iteration columns and number of iterations (all except par_name)
+iter_cols = [c for c in par_val_df.columns if c not in ["par_name", "comment"]]
 n_iterations = len(iter_cols)
 
+# Loop over each iteration (parameter group)
 for i, col in enumerate(iter_cols, start=1):
+    print(f"\n--- Running simulation for parameter group {i}/{n_iterations} with {col} ---")
 
-    print(f"\n--- Running iteration {i}/{n_iterations} with {col} ---")
+    for row in par_val_df.index:
+    # Replace parameter value
+        par_df.loc[row, "value"] = par_val_df.loc[row, col]
 
-    # ------------------------------------------------------------------------------------- #
-    # -------------------------------- PREPARE SETUP FILE --------------------------------- #
-    # ------------------------------------------------------------------------------------- #
-
-    # Merge well_df with the selected q column
-    merged = well_df.drop(columns=["q"]).merge(
-        q_df[["well_id", "time", col]],
-        on=["well_id", "time"],
-        how="left")
-    
-    # Rename current iteration q value column to "q"
-    merged = merged.rename(columns={col: "q"})
-
-    # Write updated wells sheet back to Excel (overwrite only that sheet)
+    # Write updated parameters sheet back to Excel (overwrite only that sheet)
     with pd.ExcelWriter(setup_file, mode="a", if_sheet_exists="replace") as writer:
-        merged.to_excel(writer, sheet_name="wells", index=False)
+        par_df.to_excel(writer, sheet_name="parameters", index=True)
 
-    # --- Run your model here ---
-    # run_model(setup_file)
+    # Read and modify the iteration file with right paths and setup file
+    with open(new_file_path, "r") as f:
+        lines = f.readlines()
 
-    # --- Optionally, save results tagged by iteration ---
-    # save_results(iteration=i)
+    setup_replaced = False
+    output_folder_repaced = False
+    for i, line in enumerate(lines):
+        if "sys.path.append('..')" in line:
+            lines[i] = f"sys.path.append(r'{mlibs_path}')\n"
+        if not setup_replaced and line.strip().startswith("setup_file ="):
+            lines[i] = f"setup_file = r'{setup_file}' # Excel file containing model setup parameters\n"
+            setup_replaced = True
+        if not output_folder_repaced and line.strip().startswith("output_folder ="):
+            lines[i] = f"output_folder = r'{output_folder}/{col}' # Output folder for each parameter iteration results\n"
+            output_folder_repaced = True
+
+    # Save back the modified file
+    with open(new_file_path, "w") as f:
+        f.writelines(lines)
+    print("Iteration script created at:", new_file_path)
 
     # --------------------------------------------------------------------------------------- #
-    # ------------------------------- ITERATE MODEL ----------------------------------------- #
+    # ----------------------- ITERATE SUSTAINABLE YIELD ESTIMATION -------------------------- #
     # --------------------------------------------------------------------------------------- #
-
-    # Create a unique model workspace directory name based on the parameter value
-    model_ws = os.path.join(output_dir, f"{model_ws_name}_it_{col}")
     
-    # Create the directory for model_ws if it doesn't exist
+    # Create a unique model workspace directory name based on the parameter value
+    model_ws = os.path.join(output_folder, f"{col}")
     os.makedirs(model_ws, exist_ok=True)
     
     # Copy the iteration script into the unique model workspace folder and get the path
@@ -121,50 +101,6 @@ for i, col in enumerate(iter_cols, start=1):
     subprocess.run(["python", script_path], cwd=model_ws)
 
     print(f"Model run completed for iteration {i} with q={col}, model_ws={model_ws}")
-
-
-# --------------------------------------------------------------------------------------- #
-# ------------------------------- MANAGE OUTPUT FILES ----------------------------------- #
-# --------------------------------------------------------------------------------------- #
-
-# Define a destination directory to summarize results of the iterations
-results_folder = os.path.join(output_dir, "Summary_iterations")
-os.makedirs(results_folder, exist_ok=True)
-
-# Loop through the sub-folders in the output directory to get relevant files
-for folder_name in os.listdir(output_dir):
-    # Check if the folder matches the pattern "model_ws_name_it_xxxx"
-    if folder_name.startswith(f"{model_ws_name}_it_"):
-        folder_path = os.path.join(output_dir, folder_name)
-        mf_path = os.path.join(folder_path, model_ws_name, "output")
-
-        # Only proceed if the unique model workspace subfolder exists
-        if os.path.exists(mf_path):
-            # Extract the "parameter_xxxx" part from the folder name
-            code = folder_name.split(f"{model_ws_name}_")[1]
-
-            # Define the source files
-            budget_file = os.path.join(mf_path, budget_file_name)
-            zonebud_file = os.path.join(mf_path, zonebud_file_name)
-            head_obs_file = os.path.join(mf_path, head_file_name)
-
-            # Define the destination files
-            budget_dest = os.path.join(results_folder, f"{os.path.splitext(budget_file_name)[0]}_{code}.csv")
-            zonebud_dest = os.path.join(results_folder, f"{os.path.splitext(zonebud_file_name)[0]}_{code}.csv")
-            head_obs_dest = os.path.join(results_folder, f"{os.path.splitext(head_file_name)[0]}_{code}.csv")
-
-            # Copy files if they exist
-            if os.path.exists(budget_file):
-                shutil.copy(budget_file, budget_dest)
-                print(f"Copied {budget_file} to {budget_dest}")
-
-            if os.path.exists(zonebud_file):
-                shutil.copy(zonebud_file, zonebud_dest)
-                print(f"Copied {zonebud_file} to {zonebud_dest}")
-
-            if os.path.exists(head_obs_file):
-                shutil.copy(head_obs_file, head_obs_dest)
-                print(f"Copied {head_obs_file} to {head_obs_dest}")
 
 end_time = time.time()
 print(f"Total execution time: {end_time - start_time:.2f} seconds")

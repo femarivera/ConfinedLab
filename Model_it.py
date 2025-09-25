@@ -110,7 +110,7 @@ drow = int(grid_df["drow"][0]) # Row size in meters
 boundary_keywords = ["GHB", "WEL"] #List of boundaries used in the model for plotting
 heterogeneity = True # If True, generates random hydraulic conductivity fields
 
-STEADY = True # Runs the steady state model
+STEADY = False # Runs the steady state model
 plot_steady = True # Plots steady state outputs
 iterate = False # Iterates pumping rates over steady state model. Uses q_values defined above
 
@@ -132,13 +132,13 @@ outcrop_cells = geom_df["outcrop_cells"].to_numpy() # Cell ID where the unit sta
 
 # Create idomain, irch and recharge arrays
 epsilon = 0 # Minimum allowed cell thickness in meters
-transition = 50 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
+transition = 70 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
 idomain = modgeom6.compute_idomain(nlay, nrow, ncol, outcrop_cells)
 ztop = modgeom6.compute_top(idomain, outcrop_z, transition=True, slope=True,
                             transition_cells=transition, transition_type="contain", 
                             outcrop_zmin=outcrop_zmin, outcrop_zmax=outcrop_zmax)
 thickness_array = modgeom6.compute_thickness(idomain, base_thicknesses, 
-                                             transition=True, transition_type="contain", 
+                                             transition=True, transition_type="extend", 
                                              transition_cells=transition)
 zbot = modgeom6.compute_bottom(ztop, thickness_array)
 idomain = modgeom6.idomain_from_thickness(thickness_array, epsilon)
@@ -149,15 +149,6 @@ zone_array = np.zeros((nlay, nrow, ncol), dtype=int) # Create zones array for zo
 for i in range(nlay):
     zone_array[i, :, :] = i + 1
 kh_array = modgeom6.compute_3Darray(kh, idomain)
-# Plot the arrays to check consistency
-#plt.imshow(idomain[0,:,:], cmap='viridis', interpolation='nearest', aspect=300)
-#plt.colorbar()  # Add color bar to show scale
-#plt.title('iDomain')
-#plt.show()
-#plt.imshow(R_array, cmap='viridis', interpolation='nearest', aspect=300)
-#plt.colorbar()  # Add color bar to show scale
-#plt.title('Recharge')
-#plt.show()
 
 # ------------------------------------------------------------------------------- #
 # ----------------------- RANDOM PARAMETER FIELDS ------------------------------- #
@@ -193,6 +184,67 @@ if heterogeneity:
     kh_array = modpar6.stack_fields_to_3D([kh0, kh1, kh2, kh3, kh4], nlay, nrow, ncol)
 
 # ------------------------------------------------------------------------------- #
+# ----------------------- LAYER SUBDIVISION -------------------------------------- #
+# ------------------------------------------------------------------------------- #
+
+nsub = 3
+def subdivide_layers(idomain, ztop, zbot, nsub=nsub):
+    """
+    Subdivide structured grid layers into thinner layers.
+
+    Parameters
+    ----------
+    idomain : ndarray, shape (nlay, nrow, ncol)
+        Active/inactive array.
+    ztop : ndarray, shape (nlay, nrow, ncol)
+        Top elevation of each cell.
+    zbot : ndarray, shape (nlay, nrow, ncol)
+        Bottom elevation of each cell.
+    nsub : int
+        Number of subdivisions per layer.
+
+    Returns
+    -------
+    idomain_new, ztop_new, zbot_new
+    """
+    nlay, nrow, ncol = idomain.shape
+    nlay_new = nlay * nsub
+
+    idomain_new = np.repeat(idomain, nsub, axis=0)
+    ztop_new = np.empty((nlay_new, nrow, ncol))
+    zbot_new = np.empty((nlay_new, nrow, ncol))
+
+    for ilay in range(nlay):
+        for isub in range(nsub):
+            idx = ilay * nsub + isub
+            frac_top = isub / nsub
+            frac_bot = (isub + 1) / nsub
+            ztop_new[idx] = ztop[ilay] - (ztop[ilay] - zbot[ilay]) * frac_top
+            zbot_new[idx] = ztop[ilay] - (ztop[ilay] - zbot[ilay]) * frac_bot
+
+    return idomain_new, ztop_new, zbot_new
+
+# Update number of layers
+nlay = nlay * nsub
+
+#Subdivide layers
+idomain, ztop_array, zbot = subdivide_layers(idomain, ztop_array, zbot, nsub=3)
+
+#Update parameter 1D arrays (size nlay)
+kh = np.repeat(kh, nsub)
+sy = np.repeat(sy, nsub)
+ss = np.repeat(ss, nsub)
+base_thicknesses = np.repeat(base_thicknesses, nsub)
+R = np.repeat(R, nsub)
+
+#Update thickness, irch, R_array, zone_array and kh_array
+thickness_array = ztop_array - zbot
+irch = modgeom6.compute_irch(idomain)
+zone_array = np.repeat(zone_array, nsub, axis=0)
+kh_array = np.repeat(kh_array, nsub, axis=0)
+R_array = modgeom6.compute_recharge(irch, R)
+
+# ------------------------------------------------------------------------------- #
 # --------------------------- BUILDING SIMULATION ------------------------------- #
 # ------------------------------------------------------------------------------- #
 
@@ -221,12 +273,12 @@ gwf = flopy.mf6.ModflowGwf(sim,
 ims = flopy.mf6.ModflowIms(sim, pname="ims",
                            print_option="SUMMARY",
                            complexity="COMPLEX",
-                           outer_dvclose=0.01,
+                           outer_dvclose=0.001,
                            outer_maximum=10000,
                            under_relaxation="NONE",
                            inner_maximum=10000,
-                           inner_dvclose=0.01,
-                           rcloserecord=0.01,
+                           inner_dvclose=0.001,
+                           rcloserecord=0.001,
                            linear_acceleration="BICGSTAB",
                            scaling_method="NONE",
                            reordering_method="NONE",
@@ -251,7 +303,7 @@ ic = flopy.mf6.ModflowGwfic(gwf,
 npf = flopy.mf6.ModflowGwfnpf(gwf,
                               pname = "npf",
                               save_specific_discharge = True,
-                              icelltype=[1, 1, 1, 1, 1], 
+                              icelltype=[1, 1, 1, 1, 1]*nsub, 
                               k=kh_array,
                               k33=kh_array/10,
                               filename=f"{model_name}.npf")
@@ -269,28 +321,28 @@ oc = flopy.mf6.ModflowGwfoc(
 
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
-# River package
-#riv_cells1 = modbound6.extract_active_cells_n_range(irch, idomain, n=20, col_start=0, col_end=200)
-#riv_cells2 = modbound6.extract_active_cells_n_range(irch, idomain, n=75, col_start=200, col_end=ncol-1)
-#riv_cells = riv_cells1 + riv_cells2
-#riv_cells = riv_cells[:-1] # leave the last cell
-#riv_spd1 = modbound6.create_riv_spd(
-#    riv_cells,
-#    ztop_array,
-#    thickness_array,
-#    np.array([kh[0]/100,kh[1]*10,kh[2]/10,kh[3]*10,kh[4]/10]),
-#    drow,
-#    river_width=1,
-#    riverbed_thickness=1,
-#    stage_type="proportion",
-#    a=0.20,
-#    b=1,
-#    conc=None)
-#riv1 = flopy.mf6.ModflowGwfriv(gwf, 
-#                              pname = "riv",
-#                              save_flows = True,
-#                              stress_period_data = riv_spd1,
-#                              filename = f"{model_name}.riv")
+#River package
+# riv_cells1 = modbound6.extract_active_cells_n_range(irch, idomain, n=20, col_start=0, col_end=200)
+# riv_cells2 = modbound6.extract_active_cells_n_range(irch, idomain, n=75, col_start=200, col_end=ncol-1)
+# riv_cells = riv_cells1 + riv_cells2
+# riv_cells = riv_cells[:-1] # leave the last cell
+# riv_spd1 = modbound6.create_riv_spd(
+#     riv_cells,
+#     ztop_array,
+#     thickness_array,
+#     np.repeat(np.array([kh[0]/100,kh[1]*10,kh[2]/10,kh[3]*10,kh[4]/10]), nsub, axis=0),
+#     drow,
+#     river_width=1,
+#     riverbed_thickness=1,
+#     stage_type="absolute",
+#     a=5,
+#     b=1,
+#     conc=None)
+# riv1 = flopy.mf6.ModflowGwfriv(gwf, 
+#                               pname = "riv",
+#                               save_flows = True,
+#                               stress_period_data = riv_spd1,
+#                               filename = f"{model_name}.riv")
 
 # Drain package
 drn_cells1 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 0, ncol-1)
@@ -300,7 +352,7 @@ drn_spd = modbound6.create_drn_spd(
     drn_cells,
     ztop_array,
     thickness_array,
-    1000000*kh,
+    np.repeat(np.array([kh[0]*1000,1,kh[2]*100000,1,kh[4]*100000]), nsub, axis=0),
     drow,
     drain_width=1,
     drainbed_thickness=1,
@@ -347,19 +399,17 @@ wel = flopy.mf6.ModflowGwfwel(gwf,
 
 # General head boundary package
 # GHB in the lateral outflow
-ghb_1 = ztop_array[0,0,ncol-1]-(0.15*base_thicknesses[0])
+ghb_1 = ztop_array[0,0,ncol-1]-2
 ghb_spd1 = {}
-ghb_spd1[0] = [((0, 0, ncol-1), ghb_1, kh[0]*base_thicknesses[0]*width, "Unconfined"),
-                ((1, 0, ncol-1), ghb_1, kh[1]*base_thicknesses[1]*width, "Aqt1"),
-                ((2, 0, ncol-1), ghb_1, kh[2]*base_thicknesses[2]*width, "Caq1"),
-                ((3, 0, ncol-1), ghb_1, kh[3]*base_thicknesses[3]*width, "Aqt2"),
-                ((4, 0, ncol-1), ghb_1, kh[4]*base_thicknesses[4]*width, "Caq2")]
+ghb_spd1[0] = [
+    ((ilay, 0, ncol-1), ghb_1, 1000 * kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
+    for ilay in range(nlay)]
 
 # GHB in the top of first layer
-#ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2,col_start=ncol-100, col_end=ncol-1)
-#ghb_spd2 = {}
-#ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j]-(0.15*base_thicknesses[k]), kh[k]*dcol*width, "top_ghb") for (k, i, j) in ghb_cells2]
-#ghb_spd1[0].extend(ghb_spd2[0])
+# ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2,col_start=ncol-25, col_end=ncol-1)
+# ghb_spd2 = {}
+# ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j]-2, 100 * kh[k]*dcol*width, "top_ghb") for (k, i, j) in ghb_cells2]
+# ghb_spd1[0].extend(ghb_spd2[0])
 
 ghb = flopy.mf6.ModflowGwfghb(gwf,
                                 pname="ghb",
@@ -401,13 +451,13 @@ if STEADY:
                                 f"{figure_folder}/cross_section_heads.png",
                                 boundary_keywords = boundary_keywords,
                                 flow_dir = False, surface = True, 
-                                show=False, save=True, figsize=(19, 4), layers = True, 
+                                show=False, save=True, figsize=(19, 4), layers = False, 
                                 title="Cross section - Steady state simulation")
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                 f"{figure_folder}/cross_section_heads_qdir.png",
                                 boundary_keywords = boundary_keywords,
                                 flow_dir = True, surface = True, 
-                                show=False, save=True, figsize=(19, 4), layers = True, 
+                                show=False, save=True, figsize=(19, 4), layers = False, 
                                 title="Cross section - Steady state simulation")
 
         modplot6.plot_bud_sum_steady(budget_file, 
@@ -415,7 +465,6 @@ if STEADY:
                                 show=False, save=True, figsize=(14, 5), fontsize=14)
 
         modplot6.plot_cross_section_array(gwf, 
-                             kh_array, 
                              nrow//2, 
                              f"{figure_folder}/cross_section_kh.png", 
                              boundary_keywords=None, 
@@ -424,28 +473,29 @@ if STEADY:
                              figsize=(19, 5),
                              fontsize=14,
                              log=True,
+                             array=kh_array,
                              label="Hydraulic Conductivity (m/d)", 
                              title="Model layers")
 
-        modplot6.plot_cross_section_array(gwf, 
-                             zone_array, 
-                             nrow//2, 
-                             f"{figure_folder}/cross_section_layers.png", 
-                             boundary_keywords= ["DRN"] + boundary_keywords, 
-                             show = False, 
-                             save = True, 
-                             figsize=(19, 5),
-                             fontsize=14,
-                             log=False,
-                             label="Layer number", 
-                             title="Model layers and boundary conditions")         
+        modplot6.plot_cross_section_array(  gwf,
+                                            nrow//2,
+                                            f"{figure_folder}/cross_section_layers.png",
+                                            boundary_keywords=["DRN"] + boundary_keywords,
+                                            show=False,
+                                            save=True,
+                                            ax=None,
+                                            figsize=(19, 6),
+                                            fontsize=14,
+                                            array=None,
+                                            title="Boundary conditions",
+                                            colorbar=False,
+                                            log=False)      
         
         # Plot heads with im.show
         #masked_head = np.where(idomain == 0, np.nan, head)
         #plt.imshow(masked_head[:,0,:], aspect=300, interpolation=None)
         #plt.colorbar()
         #plt.show()
-
     # ----------------------------------------------------------------------------- #
     # -------------------------- ITERATION PUMPING RATES -------------------------- #
     # ----------------------------------------------------------------------------- #
@@ -559,7 +609,7 @@ if TRANSIENT:
     # Compute recharge arrays per time step
     tas_data = {}
     for i, t in enumerate(time_steps):
-        R = R_vectors[i]
+        R = np.repeat(R_vectors[i],nsub)
         recharge_array = modgeom6.compute_recharge(irch, R)  # shape (nrow, ncol)
         tas_data[t] = recharge_array
 
@@ -674,13 +724,13 @@ if TRANSIENT:
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                         f"{figure_folder}/cross_section_heads_t.png",
                                         boundary_keywords = boundary_keywords,
-                                        flow_dir = False, surface = True, layers=True,
+                                        flow_dir = False, surface = True, layers=False,
                                         show=False, save=True, figsize = (19, 4),
                                         title=f"Cross section at time {elapsed_time} days")
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                         f"{figure_folder}/cross_section_heads_t_qdir.png",
                                         boundary_keywords = boundary_keywords,
-                                        flow_dir = True, surface = True, layers=True,
+                                        flow_dir = True, surface = True, layers=False,
                                         show=False, save=True, figsize = (19, 4),
                                         title=f"Cross section at time {elapsed_time} days")
         

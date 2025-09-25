@@ -617,8 +617,7 @@ def plot_bud_sum_steady(file_path,
         fig.savefig(output_path, dpi=300)
         plt.close(fig)
 
-def plot_cross_section_array(gwf, 
-                             array, 
+def plot_cross_section_array(gwf,
                              row, 
                              output_path, 
                              boundary_keywords=None, 
@@ -626,11 +625,14 @@ def plot_cross_section_array(gwf,
                              save = False, 
                              ax=None,
                              figsize=(19, 6),
-                             fontsize=14, 
+                             fontsize=14,
+                             array=None, 
                              title="Cross section",
                              colorbar = True,
                              log=False,
-                             label="Legend"):
+                             label="Legend", 
+                             vmin = None, 
+                             vmax = None):
     """
     Plots a cross-section for a MODFLOW 6 groundwater flow model along a specified row.
 
@@ -648,6 +650,7 @@ def plot_cross_section_array(gwf,
         title (str, optional): Title for the plot.
         colorbar (bool, optional): Whether to include a colorbar.
         label (str, optional): Label for the colorbar.
+        vmin, vmax (float, optional): Minimum and maximum values for color scaling. If None, computed from the array.
 
     Outputs:
         Displays the cross-section plot and/or saves it to a file.
@@ -663,8 +666,6 @@ def plot_cross_section_array(gwf,
 
     if gwf is None:
         raise ValueError("gwf (MODFLOW 6 model object) must be provided.")
-    if array is None:
-        raise ValueError("array to plot must be provided.")
     if not isinstance(row, int) or row < 0:
         raise ValueError("row must be a non-negative integer.")
     if not isinstance(output_path, str) or not output_path:
@@ -705,21 +706,31 @@ def plot_cross_section_array(gwf,
     ax.set_title(title, fontsize=fontsize)
   
     # Compute minimum and maximum head values for color scaling
-    vmin, vmax = np.nanmin(array), np.nanmax(array)
+    if vmin is None and vmax is None:
+        vmin, vmax = np.nanmin(array), np.nanmax(array)
+    else:
+        vmin = vmin
+        vmax = vmax
     
     # Create the cross-section object
     section = flopy.plot.PlotCrossSection(
         model=gwf,
         ax=ax,
-        line={"row": row}
-    )
+        line={"row": row})
     
-    # Plot the array
-    if log:
-        norm = LogNorm(vmin=vmin, vmax=vmax)
-        pa = section.plot_array(array, vmin=vmin, vmax=vmax, cmap=get_cmap("cividis_r"), norm=norm)
-    else:    
-        pa = section.plot_array(array, vmin=vmin, vmax=vmax, cmap=get_cmap("cividis_r"))
+    if array is not None:
+        if array.shape != (gwf.modelgrid.nlay, gwf.modelgrid.nrow, gwf.modelgrid.ncol):
+            raise ValueError(f"array shape {array.shape} does not match model grid shape {(gwf.modelgrid.nlay, gwf.modelgrid.nrow, gwf.modelgrid.ncol)}.")
+        # Plot the array
+        if log:
+            norm = LogNorm(vmin=vmin, vmax=vmax)
+            pa = section.plot_array(array, vmin=vmin, vmax=vmax, cmap=get_cmap("cividis_r"), norm=norm)
+        else:    
+            pa = section.plot_array(array, vmin=vmin, vmax=vmax, cmap=get_cmap("cividis_r"))
+        # Add colorbar
+        if colorbar:
+            cb = plt.colorbar(pa, ax=ax)
+            cb.set_label(label, fontsize=fontsize)
 
     # Plot the grid lines
     section.plot_grid(lw=0.1, color="0.5")
@@ -736,11 +747,6 @@ def plot_cross_section_array(gwf,
             # Plot the boundary condition with the appropriate color
             if bc_color:
                 section.plot_bc(bc, color=bc_color)
-
-    # Add colorbar
-    if colorbar:
-        cb = plt.colorbar(pa, ax=ax)
-        cb.set_label(label, fontsize=fontsize)
 
     # Show and save the plot
     plt.ioff()
@@ -890,3 +896,21 @@ def fix_mppth_file(fpth):
         file.writelines(fixed_lines)
 
     print(f"File '{fpth}' has been corrected for scientific notation issues.")
+
+def animate(folder_path, gif_output_path, duration=250):
+    import os
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import PillowWriter, FuncAnimation
+    import imageio
+
+    image_paths = [os.path.join(folder_path, f) 
+               for f in os.listdir(folder_path)]
+
+    # Create the GIF animation
+    with imageio.get_writer(gif_output_path, mode='I', duration=duration) as writer:
+        for image_path in image_paths:
+            image = imageio.imread(image_path)
+            writer.append_data(image)
+
+    print(f"Animation saved at {gif_output_path}")
+    print("All cross-section plots and animation generated and saved.")

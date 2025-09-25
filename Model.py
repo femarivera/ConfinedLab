@@ -67,6 +67,21 @@ import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # ------------------------------------------------------------------------------- #
+# --------------------------- MODEL RUN CONTROL --------------------------------- #
+# ------------------------------------------------------------------------------- #
+
+boundary_keywords = ["GHB", "WEL"] #List of boundaries used in the model for plotting
+heterogeneity = True # If True, generates random hydraulic conductivity fields
+
+STEADY = True # Runs the steady state model
+plot_steady = True # Plots steady state outputs
+iterate = False # Iterates pumping rates over steady state model. Uses q_values defined above
+
+TRANSIENT = True # Runs the transient model
+plot_transient = True # Plots transient outputs
+animate = False # Animates transient cross sections
+
+# ------------------------------------------------------------------------------- #
 # --------------------------------- MODEL SETUP --------------------------------- #
 # ------------------------------------------------------------------------------- #
 
@@ -91,6 +106,7 @@ kh = par_df_to_1Darray(par_df, "kh") # Horizontal hydraulic conductivity in m/d
 kv = par_df_to_1Darray(par_df, "kv") # Vertical hydraulic conductivity in m/d
 sy = par_df_to_1Darray(par_df, "sy") # Specific yield (adimensional)
 ss = par_df_to_1Darray(par_df, "ss") # Specific storage (m-1)
+drn_cond = par_df_to_1Darray(par_df, "drn_cond") # Drain conductance (m2/d)
 R = par_df_to_1Darray(par_df, "rech") # Recharge (m/d)
 
 # Set model grid parameters
@@ -102,21 +118,6 @@ length = float(grid_df["lcol"][0]) # Total lenght of model in meters
 width = float(grid_df["lrow"][0]) # Total width of model in meters
 dcol = int(grid_df["dcol"][0]) # Column size in meters
 drow = int(grid_df["drow"][0]) # Row size in meters
-
-# ------------------------------------------------------------------------------- #
-# --------------------------- MODEL RUN CONTROL --------------------------------- #
-# ------------------------------------------------------------------------------- #
-
-boundary_keywords = ["GHB", "WEL"] #List of boundaries used in the model for plotting
-heterogeneity = True # If True, generates random hydraulic conductivity fields
-
-STEADY = True # Runs the steady state model
-plot_steady = True # Plots steady state outputs
-iterate = False # Iterates pumping rates over steady state model. Uses q_values defined above
-
-TRANSIENT = True # Runs the transient model
-plot_transient = True # Plots transient outputs
-animate = False # Animates transient cross sections
 
 # ------------------------------------------------------------------------------- #
 # --------------------------- GEOMETRY GENERATION ------------------------------- #
@@ -132,13 +133,13 @@ outcrop_cells = geom_df["outcrop_cells"].to_numpy() # Cell ID where the unit sta
 
 # Create idomain, irch and recharge arrays
 epsilon = 0 # Minimum allowed cell thickness in meters
-transition = 50 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
+transition = 70 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
 idomain = modgeom6.compute_idomain(nlay, nrow, ncol, outcrop_cells)
 ztop = modgeom6.compute_top(idomain, outcrop_z, transition=True, slope=True,
                             transition_cells=transition, transition_type="contain", 
                             outcrop_zmin=outcrop_zmin, outcrop_zmax=outcrop_zmax)
 thickness_array = modgeom6.compute_thickness(idomain, base_thicknesses, 
-                                             transition=True, transition_type="contain", 
+                                             transition=True, transition_type="extend", 
                                              transition_cells=transition)
 zbot = modgeom6.compute_bottom(ztop, thickness_array)
 idomain = modgeom6.idomain_from_thickness(thickness_array, epsilon)
@@ -149,15 +150,6 @@ zone_array = np.zeros((nlay, nrow, ncol), dtype=int) # Create zones array for zo
 for i in range(nlay):
     zone_array[i, :, :] = i + 1
 kh_array = modgeom6.compute_3Darray(kh, idomain)
-# Plot the arrays to check consistency
-#plt.imshow(idomain[0,:,:], cmap='viridis', interpolation='nearest', aspect=300)
-#plt.colorbar()  # Add color bar to show scale
-#plt.title('iDomain')
-#plt.show()
-#plt.imshow(R_array, cmap='viridis', interpolation='nearest', aspect=300)
-#plt.colorbar()  # Add color bar to show scale
-#plt.title('Recharge')
-#plt.show()
 
 # ------------------------------------------------------------------------------- #
 # ----------------------- RANDOM PARAMETER FIELDS ------------------------------- #
@@ -193,6 +185,29 @@ if heterogeneity:
     kh_array = modpar6.stack_fields_to_3D([kh0, kh1, kh2, kh3, kh4], nlay, nrow, ncol)
 
 # ------------------------------------------------------------------------------- #
+# ----------------------- LAYER SUBDIVISION -------------------------------------- #
+# ------------------------------------------------------------------------------- #
+
+nsub = [3,3,3,3,3]
+#Subdivide layers
+nlay, idomain, ztop_array, zbot = modgeom6.subdivide_layers(idomain, ztop_array, zbot, nsub)
+
+# Subdivide other arrays (size nlay)
+kh = modgeom6.subdivide_array(kh, nsub)
+sy = modgeom6.subdivide_array(sy, nsub)
+ss = modgeom6.subdivide_array(ss, nsub)
+drn_cond = modgeom6.subdivide_array(drn_cond, nsub)
+base_thicknesses = modgeom6.subdivide_array(base_thicknesses, nsub)
+R = modgeom6.subdivide_array(R, nsub)
+zone_array = modgeom6.subdivide_array(zone_array, nsub)
+kh_array = modgeom6.subdivide_array(kh_array, nsub)
+
+#Update thickness, irch, R_array, zone_array and kh_array
+thickness_array = ztop_array - zbot
+irch = modgeom6.compute_irch(idomain)
+R_array = modgeom6.compute_recharge(irch, R)
+
+# ------------------------------------------------------------------------------- #
 # --------------------------- BUILDING SIMULATION ------------------------------- #
 # ------------------------------------------------------------------------------- #
 
@@ -226,7 +241,7 @@ ims = flopy.mf6.ModflowIms(sim, pname="ims",
                            under_relaxation="NONE",
                            inner_maximum=10000,
                            inner_dvclose=0.01,
-                           rcloserecord=0.01,
+                           rcloserecord=0.001,
                            linear_acceleration="BICGSTAB",
                            scaling_method="NONE",
                            reordering_method="NONE",
@@ -251,7 +266,7 @@ ic = flopy.mf6.ModflowGwfic(gwf,
 npf = flopy.mf6.ModflowGwfnpf(gwf,
                               pname = "npf",
                               save_specific_discharge = True,
-                              icelltype=[1, 1, 1, 1, 1], 
+                              icelltype= modgeom6.subdivide_array(np.array([1, 1, 1, 1, 1]), nsub), 
                               k=kh_array,
                               k33=kh_array/10,
                               filename=f"{model_name}.npf")
@@ -269,38 +284,37 @@ oc = flopy.mf6.ModflowGwfoc(
 
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
-# River package
-riv_cells1 = modbound6.extract_active_cells_n_range(irch, idomain, n=20, col_start=0, col_end=200)
-riv_cells2 = modbound6.extract_active_cells_n_range(irch, idomain, n=75, col_start=200, col_end=ncol-1)
-riv_cells = riv_cells1 + riv_cells2
-riv_cells = riv_cells[:-1] # leave the last cell
-riv_spd1 = modbound6.create_riv_spd(
-    riv_cells,
-    ztop_array,
-    thickness_array,
-    np.array([kh[0]/100,kh[1]*10,kh[2]/10,kh[3]*10,kh[4]/10]),
-    drow,
-    river_width=1,
-    riverbed_thickness=1,
-    stage_type="proportion",
-    a=0.20,
-    b=1,
-    conc=None)
-riv1 = flopy.mf6.ModflowGwfriv(gwf, 
-                              pname = "riv",
-                              save_flows = True,
-                              stress_period_data = riv_spd1,
-                              filename = f"{model_name}.riv")
+#River package
+# riv_cells1 = modbound6.extract_active_cells_n_range(irch, idomain, n=20, col_start=0, col_end=200)
+# riv_cells2 = modbound6.extract_active_cells_n_range(irch, idomain, n=75, col_start=200, col_end=ncol-1)
+# riv_cells = riv_cells1 + riv_cells2
+# riv_cells = riv_cells[:-1] # leave the last cell
+# riv_spd1 = modbound6.create_riv_spd(
+#     riv_cells,
+#     ztop_array,
+#     thickness_array,
+#     modgeom6.subdivide_array(np.array([kh[0],kh[1]*10,kh[2],kh[3]*10,kh[4]]), nsub),
+#     drow,
+#     river_width=1,
+#     riverbed_thickness=1,
+#     stage_type="proportion",
+#     a=0.3,
+#     b=1,
+#     conc=None)
+# riv1 = flopy.mf6.ModflowGwfriv(gwf, 
+#                               pname = "riv",
+#                               save_flows = True,
+#                               stress_period_data = riv_spd1,
+#                               filename = f"{model_name}.riv")
 
 # Drain package
-drn_cells1 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, nrow//2, nrow//2, 0, ncol-1, zones=[2,4])
-#drn_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 150, 202)
-drn_cells = drn_cells1 #+ drn_cells2
+drn_cells1 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, nrow//2, nrow//2, 0, ncol-1, zones = [1,2,3,4,5])
+drn_cells = drn_cells1 
 drn_spd = modbound6.create_drn_spd(
     drn_cells,
     ztop_array,
     thickness_array,
-    1000000*kh,
+    drn_cond,
     drow,
     drain_width=1,
     drainbed_thickness=1,
@@ -347,19 +361,17 @@ wel = flopy.mf6.ModflowGwfwel(gwf,
 
 # General head boundary package
 # GHB in the lateral outflow
-ghb_1 = ztop_array[0,0,ncol-1]-(0.15*base_thicknesses[0])
+ghb_1 = ztop_array[0,0,ncol-1]-2
 ghb_spd1 = {}
-ghb_spd1[0] = [((0, 0, ncol-1), ghb_1, kh[0]*base_thicknesses[0]*width, "Unconfined"),
-                ((1, 0, ncol-1), ghb_1, kh[1]*base_thicknesses[1]*width, "Aqt1"),
-                ((2, 0, ncol-1), ghb_1, kh[2]*base_thicknesses[2]*width, "Caq1"),
-                ((3, 0, ncol-1), ghb_1, kh[3]*base_thicknesses[3]*width, "Aqt2"),
-                ((4, 0, ncol-1), ghb_1, kh[4]*base_thicknesses[4]*width, "Caq2")]
+ghb_spd1[0] = [
+    ((ilay, 0, ncol-1), ghb_1, 10 * kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
+    for ilay in range(nlay)]
 
 # GHB in the top of first layer
-#ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2,col_start=ncol-100, col_end=ncol-1)
-#ghb_spd2 = {}
-#ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j]-(0.15*base_thicknesses[k]), kh[k]*dcol*width, "top_ghb") for (k, i, j) in ghb_cells2]
-#ghb_spd1[0].extend(ghb_spd2[0])
+# ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2,col_start=ncol-25, col_end=ncol-1)
+# ghb_spd2 = {}
+# ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j]-2, 100 * kh[k]*dcol*width, "top_ghb") for (k, i, j) in ghb_cells2]
+# ghb_spd1[0].extend(ghb_spd2[0])
 
 ghb = flopy.mf6.ModflowGwfghb(gwf,
                                 pname="ghb",
@@ -401,13 +413,13 @@ if STEADY:
                                 f"{figure_folder}/cross_section_heads.png",
                                 boundary_keywords = boundary_keywords,
                                 flow_dir = False, surface = True, 
-                                show=False, save=True, figsize=(19, 4), layers = True, 
+                                show=False, save=True, figsize=(19, 4), layers = False, 
                                 title="Cross section - Steady state simulation")
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                 f"{figure_folder}/cross_section_heads_qdir.png",
                                 boundary_keywords = boundary_keywords,
                                 flow_dir = True, surface = True, 
-                                show=False, save=True, figsize=(19, 4), layers = True, 
+                                show=False, save=True, figsize=(19, 4), layers = False, 
                                 title="Cross section - Steady state simulation")
 
         modplot6.plot_bud_sum_steady(budget_file, 
@@ -415,7 +427,6 @@ if STEADY:
                                 show=False, save=True, figsize=(14, 5), fontsize=14)
 
         modplot6.plot_cross_section_array(gwf, 
-                             kh_array, 
                              nrow//2, 
                              f"{figure_folder}/cross_section_kh.png", 
                              boundary_keywords=None, 
@@ -424,28 +435,29 @@ if STEADY:
                              figsize=(19, 5),
                              fontsize=14,
                              log=True,
+                             array=kh_array,
                              label="Hydraulic Conductivity (m/d)", 
                              title="Model layers")
 
-        modplot6.plot_cross_section_array(gwf, 
-                             zone_array, 
-                             nrow//2, 
-                             f"{figure_folder}/cross_section_layers.png", 
-                             boundary_keywords= ["DRN"] + boundary_keywords, 
-                             show = False, 
-                             save = True, 
-                             figsize=(19, 5),
-                             fontsize=14,
-                             log=False,
-                             label="Layer number", 
-                             title="Model layers and boundary conditions")         
+        modplot6.plot_cross_section_array(  gwf,
+                                            nrow//2,
+                                            f"{figure_folder}/cross_section_layers.png",
+                                            boundary_keywords=["DRN"] + boundary_keywords,
+                                            show=False,
+                                            save=True,
+                                            ax=None,
+                                            figsize=(19, 6),
+                                            fontsize=14,
+                                            array=None,
+                                            title="Boundary conditions",
+                                            colorbar=False,
+                                            log=False)      
         
         # Plot heads with im.show
         #masked_head = np.where(idomain == 0, np.nan, head)
         #plt.imshow(masked_head[:,0,:], aspect=300, interpolation=None)
         #plt.colorbar()
         #plt.show()
-
     # ----------------------------------------------------------------------------- #
     # -------------------------- ITERATION PUMPING RATES -------------------------- #
     # ----------------------------------------------------------------------------- #
@@ -559,7 +571,7 @@ if TRANSIENT:
     # Compute recharge arrays per time step
     tas_data = {}
     for i, t in enumerate(time_steps):
-        R = R_vectors[i]
+        R = modgeom6.subdivide_array(R_vectors[i], nsub)
         recharge_array = modgeom6.compute_recharge(irch, R)  # shape (nrow, ncol)
         tas_data[t] = recharge_array
 
@@ -650,8 +662,8 @@ if TRANSIENT:
     if plot_transient:
         
         # Select time step, period, and layer to plot
-        ts_num = 0
         sp_num = nper - 1 
+        ts_num = 0
         layer = 0
         elapsed_time = modtransient6.elapsed_time(perioddata, sp_num, ts_num)
 
@@ -662,6 +674,9 @@ if TRANSIENT:
 
         hobj = flopy.utils.HeadFile(f"{output_folder}/{model_name_tr}.hds")
         transient_heads = hobj.get_alldata()
+
+        cb = gwf.oc.output.budget()
+        cb.get_data(idx=0, full3D=True) #Get cell budget file
 
         budget_file_t = f"{output_folder}/{model_name_tr}_budget.csv"
 
@@ -674,13 +689,13 @@ if TRANSIENT:
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                         f"{figure_folder}/cross_section_heads_t.png",
                                         boundary_keywords = boundary_keywords,
-                                        flow_dir = False, surface = True, layers=True,
+                                        flow_dir = False, surface = True, layers=False,
                                         show=False, save=True, figsize = (19, 4),
                                         title=f"Cross section at time {elapsed_time} days")
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                         f"{figure_folder}/cross_section_heads_t_qdir.png",
                                         boundary_keywords = boundary_keywords,
-                                        flow_dir = True, surface = True, layers=True,
+                                        flow_dir = True, surface = True, layers=False,
                                         show=False, save=True, figsize = (19, 4),
                                         title=f"Cross section at time {elapsed_time} days")
         
@@ -713,7 +728,17 @@ if TRANSIENT:
                                                 f"{figure_folder}/net_flow_ts.png",
                                                 show=False, save=True, tau = None, 
                                                 time_units="years")
-
+        
+        modtransient6.plot_storage_change_rate(budget_file_t, 
+                            f"{figure_folder}/storage_change_rate.png", 
+                            show=False, 
+                            save=True, 
+                            figsize=(14, 12), 
+                            fontsize=14,
+                            xlim=None,  # Tuple for x-axis limits
+                            ylim=None,
+                            time_units="years")
+        
         #--------------------------------------- ZONE BUDGET ---------------------------------------------#
         
         modtransient6.plot_zone_budget(zonebud_file_t, figure_folder, show=False, save=True, 
@@ -729,6 +754,43 @@ if TRANSIENT:
                                                   show=False, save=True, 
                                                   time_units="years")
 
+
+        # ------------------------------------- RELAXATION TIMES ------------------------------------------ #
+        
+        # start = 3600000 #start of the step change in model units
+        # step = 18000 #Size of the steps in model units
+        # n = 50
+        # end = start + (step*n)
+
+        # for t in range(start, end, step):
+        #     modtransient6.plot_residual_diffusion(  gwf=gwf,
+        #                                             start_time=start,
+        #                                             time=t,
+        #                                             perioddata=perioddata,
+        #                                             nrow=nrow//2,
+        #                                             transient_heads=transient_heads,
+        #                                             steady_state_heads=steady_state_heads,
+        #                                             title=f"Absolute residual difussion in hydraulic heads after {int((t - start)/360)} years",
+        #                                             label="Head difference (m)",
+        #                                             vmin=0.01,
+        #                                             vmax=None,
+        #                                             save=True,
+        #                                             output_folder=f"{figure_folder}/Residual_diffusion", 
+        #                                             plot_name = f"Residual_diffusion_{t}.png" )
+
+        # modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
+
+        # modtransient6.animate_storage_cross_section(
+        #                                                 gwf,
+        #                                                 cb, # CellBudgetFile object
+        #                                                 nrow//2,  # Row index for cross-section
+        #                                                 f"{figure_folder}/cross_sections_sto",   # Folder to save individual plots
+        #                                                 f"{figure_folder}/animation_sto.gif",    # Path to save GIF
+        #                                                 boundary_keywords=None,
+        #                                                 show=False, save=True,
+        #                                                 figsize=(19, 6), fontsize=14,
+        #                                                 gif_start=30, gif_step=50, duration=250,
+        #                                                 vmin=-0.001, vmax=0.001)
         #--------------------------------------- TRANSIENT ANIMATION ---------------------------------------------#
 
         if animate:

@@ -23,6 +23,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
+# Import local modules
+import sys
+sys.path.append('..')
+from mlibs import modplot6 # type: ignore
+
+
 def simplify_name(name):
     """
     Simplifies a column or component name for plotting and display.
@@ -870,6 +876,7 @@ def plot_zone_budget(csv_path,
         fontsize (int): Font size for plot labels.
         zone_descriptions (dict or None): Optional mapping of zone numbers to descriptions.
         time_units (str): "days" or "years". Units for time axis label. Defaults to 'days'.
+                            Assumes model inputs in days by default.
 
     Outputs:
         Figures for each zone showing inflow, outflow, total flows, storage change, and inter-zone transfers.
@@ -918,7 +925,16 @@ def plot_zone_budget(csv_path,
         zone_outflow_columns = [col for col in outflow_columns if zone_specific_exclude not in col]
         
         zone_data = df[df['zone'] == zone]
-        time_data = zone_data["totim"]
+        
+        # Prepare data for time series
+        if time_units == 'days':
+            time_data = zone_data["totim"]  # Assuming input time is in days
+            time_axis_label = 'Time [days]'
+        elif time_units == 'years':
+            time_data = zone_data["totim"] / 360  # Convert days to years
+            time_axis_label = 'Time [years]'
+        else:
+            raise ValueError("time_units must be 'days' or 'years'")
 
         storage_in = zone_data[storage_in_columns].sum(axis=1)
         storage_out = zone_data[storage_out_columns].sum(axis=1)
@@ -1205,11 +1221,11 @@ def plot_storage_change_rate(file_path,
 
     # Plotting
     fig, ax = plt.subplots(figsize=figsize)
-    ax.plot(time_data, storage_change_rate, label="STORAGE CHANGE", color="green")
+    ax.plot(time_data, storage_change_rate, label="STORAGE CHANGE RATE", color="green")
 
-    ax.set_title("Change in Storage", fontsize=fontsize)
+    ax.set_title("Storage change rate", fontsize=fontsize)
     ax.set_xlabel(time_axis_label, fontsize=fontsize / 1.2)
-    ax.set_ylabel("m³", fontsize=fontsize / 1.2)
+    ax.set_ylabel("m³/day", fontsize=fontsize / 1.2)
     ax.legend(fontsize=fontsize / 1.2)
     ax.grid()
 
@@ -1314,6 +1330,274 @@ def plot_storage_change(file_path,
         fig.savefig(output_path, dpi=300)
         plt.close(fig)
 
+def compute_time_steps(stress_period_data):
+    """
+    Return a list of lists with the time-step lengths for each stress period.
+
+    Parameters
+    ----------
+    stress_period_data : list of tuples
+        [(PERLEN, NSTP, TSMULT), ...] for each stress period.
+
+    Returns
+    -------
+    time_steps : list of list of floats
+        time_steps[sp][ts] = length of that time step
+    """
+    time_steps = []
+    for perlen, nstp, tsmult in stress_period_data:
+        if perlen == 0:
+            # steady-state or zero-length period: produce zero-length steps
+            time_steps.append([0.0] * nstp)
+            continue
+
+        if abs(tsmult - 1.0) < 1e-12:
+            # uniform steps
+            dt = float(perlen) / float(nstp)
+            time_steps.append([dt] * nstp)
+        else:
+            # geometric progression: dt_i = dt0 * tsmult**i, sum_i dt_i = perlen
+            r = float(tsmult)
+            n = int(nstp)
+            dt0 = float(perlen) * (r - 1.0) / (r**n - 1.0)
+            steps = [dt0 * (r**i) for i in range(n)]
+            time_steps.append(steps)
+
+    return time_steps
+
+def timestep_index_from_totim(stress_period_data, totim, tol=1e-9):
+    """
+    Map a MODFLOW totim (time at the END of a time step) to cumulative time-step index.
+
+    Parameters
+    ----------
+    stress_period_data : list of (PERLEN, NSTP, TSMULT)
+        As used in the TDIS block.
+    totim : float
+        Cumulative simulation time (MODFLOW totim) — expected to be the time at the end of some step.
+    tol : float
+        Relative tolerance for matching totim to an end-of-step time (default 1e-9).
+
+    Returns
+    -------
+    ts_global : int
+        Cumulative time-step index (0-based, counts every step including any zero-length steady steps).
+    sp_num : int
+        Stress-period index (0-based).
+    ts_num : int
+        Time-step index within the stress period (0-based).
+
+    Raises
+    ------
+    ValueError
+        If totim does not correspond (within tolerance) to an end-of-step time, or totim is outside simulation time.
+    """
+    time_steps = compute_time_steps(stress_period_data)
+
+    elapsed = 0.0
+    ts_global = 0
+    eps = max(1e-12, abs(totim) * tol)  # combined small absolute + relative tolerance
+
+    for sp_num, steps in enumerate(time_steps):
+        for ts_num, dt in enumerate(steps):
+            elapsed += float(dt)
+            # exact/near match
+            if abs(elapsed - totim) <= eps:
+                return ts_global, sp_num, ts_num
+            # if elapsed passed totim (and wasn't close), totim falls inside the step => error
+            if elapsed > totim + eps:
+                raise ValueError(
+                    f"totim {totim} falls inside a time step (end-of-step = {elapsed:.12g}). "
+                    "MODFLOW totim should be the end-of-step time."
+                )
+            ts_global += 1
+
+    # Finished loop; totim beyond final elapsed time?
+    if abs(elapsed - totim) <= eps:
+        # return last step
+        # compute last indices
+        last_sp = len(time_steps) - 1
+        last_ts = len(time_steps[-1]) - 1
+        return ts_global - 1, last_sp, last_ts
+
+    raise ValueError(f"totim {totim} is beyond the end of the simulation (final totim = {elapsed}).")
+
+def plot_residual_diffusion(
+    gwf,
+    start_time: float,
+    time: float,
+    perioddata,
+    nrow: int,
+    transient_heads: np.ndarray,
+    steady_state_heads: np.ndarray,
+    title: str = "Absolute residual diffusion cross section",
+    label: str = "Absolute residual diffusion (m)",
+    vmin: float = None,
+    vmax: float = None,
+    save: bool = True,
+    output_folder: str = None,
+    plot_name : str = "residual_diffusion.png",):
+
+    """
+    Plots the absolute residual diffusion between transient and steady-state heads
+    for analyzing transient response after a step change in stress.
+
+    Parameters
+    ----------
+    gwf : flopy GroundwaterFlowModel
+        The FloPy groundwater model object.
+    start_time : float
+        Start time in seconds.
+    perioddata : list
+        MODFLOW period data.
+    nrow : int
+        Row index to plot the cross section.
+    transient_heads : np.ndarray
+        Transient head array.
+    steady_state_heads : np.ndarray
+        Steady-state head array.
+    hobj : flopy.utils.HeadFile
+        FloPy headfile object.
+    title : str
+        Plot title.
+    label : str
+        Colorbar label.
+    vmin : float or None
+        Minimum value for colormap.
+    vmax : float or None
+        Maximum value for colormap.
+    save : bool
+        Whether to save the figure.
+    output_folder : str or None
+        Path to save the figure. Required if save=True.
+    plot_name : str
+        Name of the plot file (e.g., "residual_diffusion.png").
+    """
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import flopy
+
+    # Determine start and end steps
+    start_step = timestep_index_from_totim(perioddata, start_time)[0]
+    step = timestep_index_from_totim(perioddata, time)[0]
+    
+    # Compute residual
+    array = np.abs(transient_heads[step] - steady_state_heads)
+    
+    # Set up figure
+    fig = plt.figure(figsize=(19, 5))
+    ax = fig.add_subplot(1, 1, 1)
+    mx = flopy.plot.PlotCrossSection(ax=ax, model=gwf, line={"row": nrow})
+    
+    # Plot array
+    pa = mx.plot_array(array, alpha=1, masked_values=[1.0e30], cmap="viridis", vmin=vmin, vmax=vmax)
+    
+    # Plot grid and colorbar
+    mx.plot_grid(color="0.5", alpha=0.2)
+    cb = plt.colorbar(pa, ax=ax)
+    cb.set_label(label)
+    
+    # Title
+    ax.set_title(title)
+    
+    # Layout
+    plt.tight_layout()
+    
+    # Save or show
+    if save:
+        if output_folder is None:
+            raise ValueError("output_folder must be provided if save=True")
+        os.makedirs(output_folder, exist_ok=True)
+        fig.savefig(f"{output_folder}/{plot_name}", dpi=300)
+        plt.close(fig)
+    else:
+        plt.show()
+
+def animate_storage_cross_section(
+        gwf,
+        cb,                  # CellBudgetFile object
+        nrow,                # Row index for cross-section
+        cs_output_folder,    # Folder to save individual plots
+        gif_output_path,     # Path to save GIF
+        boundary_keywords=None,
+        show=False, save=True,
+        figsize=(19, 6), fontsize=14,
+        gif_start=0, gif_step=1, duration=0.5,
+        vmin=None, vmax=None):
+    """
+    Create a cross-section animation of storage change (STO-SS + STO-SY) 
+    using modplot6.plot_cross_section_array.
+
+    Args:
+        gwf (flopy.mf6.ModflowGwf): Groundwater flow model object.
+        cb (flopy.utils.CellBudgetFile): Cell budget file object.
+        nrow (int): Row index for cross-section.
+        cs_output_folder (str): Directory to save cross-section images.
+        gif_output_path (str): Path to save the generated animation GIF.
+        boundary_keywords (list, optional): Boundary condition keywords.
+        show (bool): Show plots interactively.
+        save (bool): Save plots to files.
+        figsize (tuple): Figure size.
+        fontsize (int/float): Font size for labels.
+        gif_start (int): First time step to include.
+        gif_step (int): Step between frames.
+        duration (float): Frame duration in seconds.
+        vmin, vmax (float): Color scale limits for consistent animation.
+    """
+    import os
+    import numpy as np
+    import imageio
+
+    os.makedirs(cs_output_folder, exist_ok=True)
+
+    steps = cb.get_kstpkper()
+    num_timesteps = len(steps)
+    image_paths = []
+
+    for t_index in range(gif_start, num_timesteps, gif_step):
+        kstpkper = steps[t_index]
+
+        try:
+            sto_ss = cb.get_data(kstpkper=kstpkper, text="STO-SS", full3D=True)[0]
+            sto_sy = cb.get_data(kstpkper=kstpkper, text="STO-SY", full3D=True)[0]
+            total_sto = -(sto_ss + sto_sy)  # net storage change
+        except:
+            print(f"Skipping {kstpkper}, storage data not available")
+            continue
+
+        output_path = os.path.join(cs_output_folder, f"cross_section_storage_{t_index}.png")
+
+        # Use your prebuilt cross-section plotter
+        modplot6.plot_cross_section_array(
+            gwf,
+            nrow,
+            output_path,
+            boundary_keywords=boundary_keywords,
+            show=show,
+            save=save,
+            figsize=figsize,
+            fontsize=fontsize,
+            array=total_sto,
+            title=f"Storage change cross-section, step {t_index} ({kstpkper})",
+            colorbar=True,
+            log=False,
+            vmin=vmin,
+            vmax=vmax,
+        )
+
+        if save:
+            image_paths.append(output_path)
+
+        print(f"Saved cross-section plot for step {t_index} ({kstpkper}) at {output_path}")
+
+    # Build GIF
+    if save and len(image_paths) > 0:
+        with imageio.get_writer(gif_output_path, mode="I", duration=duration) as writer:
+            for img in image_paths:
+                writer.append_data(imageio.imread(img))
+
+        print(f"Animation saved at {gif_output_path}")
+
 # Experimental: Plotting functions with stabilization analysis
 
 def plot_storage_change_rate_with_stabilization(file_path, 
@@ -1325,7 +1609,8 @@ def plot_storage_change_rate_with_stabilization(file_path,
                                                 tstart=0,  # Time after which the stabilization analysis starts
                                                 epsilon=None,  # Threshold for stabilization (None means skip)
                                                 xlim=None,  # Tuple for x-axis limits
-                                                ylim=None):  # Tuple for y-axis limits
+                                                ylim=None, 
+                                                time_units=None):  # Tuple for y-axis limits
     """
     Creates a time series plot for change in storage and marks the time step where the curve stabilizes.
 
@@ -1341,6 +1626,8 @@ def plot_storage_change_rate_with_stabilization(file_path,
         epsilon (float or None): The stabilization threshold. If None, no stabilization analysis is done.
         xlim (tuple or None): Limits for x-axis (e.g., (0, 500)). If None, default matplotlib behavior.
         ylim (tuple or None): Limits for y-axis (e.g., (-10, 10)). If None, default matplotlib behavior.
+        time_units (str or None): Units for time axis label. If None, defaults to 'days'. If "years", converts days to years.
+                                 Assumes model inputs in days by default.
     """
     import pandas as pd
     import matplotlib.pyplot as plt
@@ -1378,7 +1665,14 @@ def plot_storage_change_rate_with_stabilization(file_path,
 
     # Plotting
     fig, ax = plt.subplots(figsize=figsize)
-    ax.plot(time_data, storage_change_rate, label="STORAGE CHANGE", color="green")
+    if time_units == 'years':
+        time_data = time_data / 360  # Convert days to years
+        time_axis_label = "Time [years]"
+    else:
+        time_data = time_data  # Keep in days
+        time_axis_label = "Time [days]"
+
+    ax.plot(time_data, storage_change_rate, label="STORAGE CHANGE RATE", color="green")
 
     if stable_idx is not None:
         ax.axvline(time_data.iloc[stable_idx], color="green", linestyle='dotted')
@@ -1386,9 +1680,9 @@ def plot_storage_change_rate_with_stabilization(file_path,
                 f'Near equilibrium at t={round(time_data.iloc[stable_idx], 1)} days',
                 fontsize=fontsize / 1.2, color="green")
 
-    ax.set_title("Change in Storage", fontsize=fontsize)
-    ax.set_xlabel("Time [days]", fontsize=fontsize / 1.2)
-    ax.set_ylabel("m³", fontsize=fontsize / 1.2)
+    ax.set_title("Storage change rate", fontsize=fontsize)
+    ax.set_xlabel(time_axis_label, fontsize=fontsize / 1.2)
+    ax.set_ylabel("m³/day", fontsize=fontsize / 1.2)
     ax.legend(fontsize=fontsize / 1.2)
     ax.grid()
 
@@ -1898,3 +2192,4 @@ def plot_head_time_series_with_equilibrium_markers(
         
         fig.savefig(output_path, dpi=300)
         plt.close(fig)
+

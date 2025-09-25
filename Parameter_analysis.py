@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 sys.path.append('..')
 from mlibs import modpump6 # type: ignore
 
-ITERATE = True  # Set to True to run the iteration process
+ITERATE = False  # Set to True to run the iteration process
 PLOT = True  # Set to True to plot the results after all iterations
 
 # --------------------------------------------------------------------------------------- #

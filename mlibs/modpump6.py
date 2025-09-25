@@ -742,9 +742,15 @@ def estimate_sustainable_yield(
     # --- build DataFrame ---
     pumping_rates = sorted({x[0] for vals in results.values() for x in vals})
     df = pd.DataFrame({"PumpingRate": pumping_rates})
+
     for c in constraints:
         cid = c["id"]
         temp = pd.DataFrame(results[cid], columns=["PumpingRate", cid])
+
+        # ensure numeric type for safe merging
+        df["PumpingRate"] = pd.to_numeric(df["PumpingRate"], errors="coerce")
+        temp["PumpingRate"] = pd.to_numeric(temp["PumpingRate"], errors="coerce")
+
         df = pd.merge(df, temp, on="PumpingRate", how="left")
 
     # --- threshold evaluation ---

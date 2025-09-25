@@ -25,7 +25,7 @@ model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py"
 mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab"
 
 # Define a general output folder for all results of sustainable yield estimation (absolute path)
-output_folder = r'C:/Users/cmarinriver/Projects/ConfinedLab/par_results/parv_06' # Output folder for each parameter iteration results
+output_folder = r'C:/Users/cmarinriver/Projects/ConfinedLab/par_results/parv_05' # Output folder for each parameter iteration results
 
 # Define output directories for all yield iteration runs, for a summary of the yield iterations, and for generated plots (absolute paths)
 iterations_output_dir = os.path.join(output_folder, "yield_iterations")
@@ -49,8 +49,8 @@ head_file_name = "head_obs_t.csv"
 input_folder = summary_dir # Takes as input the path to the summary of the yield iterations
 
 # Define start time of pumping, planning horizons and constraints
-planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000] # In years
-pump_start = 7587000 # In model totim units (days)
+planning_horizons = [ 10, 25, 50, 100, 200, 500, 1000] # In years
+pump_start = 7578000 # In model totim units (days) corresponds to year 2000
 constraints = [
     { 'label': "Spring discharge all zones", 'id': "drn_all", 'constrain': "DRN",
     'flow': "NET", 'zone': "ALL", 'threshold_type': "RELATIVE", 'threshold': 0.9,

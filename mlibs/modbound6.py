@@ -290,8 +290,8 @@ def create_drn_spd(
         if not (isinstance(a, (float, int)) and 0 < a < 1):
             raise ValueError("For 'proportion' elev_type, 'a' must be a float strictly between 0 and 1 (0 < a < 1).")
     elif elev_type == "absolute":
-        if not (isinstance(a, (float, int)) and a > 0):
-            raise ValueError("For 'absolute' elev_type, 'a' must be a positive float or int (a > 0).")
+        if not (isinstance(a, (float, int)) and a >= 0):
+            raise ValueError("For 'absolute' elev_type, 'a' must be a positive float or int (a >= 0).")
     else:
         raise ValueError("elev_type must be either 'proportion' or 'absolute'.")
     if conc is not None and not isinstance(conc, (float, int)):
@@ -316,7 +316,7 @@ def create_drn_spd(
             if drn_elev < cell_bottom:
                 drn_elev = ztop[k, i, j] - (0.1 * thickness_array[k, i , j])
 
-        assert ztop[k, i, j] > drn_elev > cell_bottom, (
+        assert ztop[k, i, j] >= drn_elev >= cell_bottom, (
             f"Inconsistent elevations for cell (k={k}, i={i}, j={j}): "
             f"ztop={ztop[k, i, j]}, drn_elev={drn_elev}, cell_bottom={cell_bottom}"
         )

@@ -521,6 +521,68 @@ def compute_3Darray(values_1d, idomain):
         arr3d[ilay][idomain[ilay] == 1] = values_1d[ilay]
     return arr3d
 
+def subdivide_layers(idomain, ztop, zbot, nsub_layers):
+    """
+    Subdivide structured grid layers into thinner layers according to a list of nsub per layer.
+
+    Parameters
+    ----------
+    idomain : ndarray, shape (nlay, nrow, ncol)
+        Active/inactive array.
+    ztop : ndarray, shape (nlay, nrow, ncol)
+        Top elevation of each cell.
+    zbot : ndarray, shape (nlay, nrow, ncol)
+        Bottom elevation of each cell.
+    nsub_layers : list or array of int, length = nlay
+        Number of subdivisions for each parent layer.
+
+    Returns
+    -------
+    idomain_new, ztop_new, zbot_new
+    """
+    import numpy as np
+    nlay, nrow, ncol = idomain.shape
+    nlay_new = sum(nsub_layers)
+
+    idomain_new = np.empty((nlay_new, nrow, ncol), dtype=idomain.dtype)
+    ztop_new = np.empty((nlay_new, nrow, ncol))
+    zbot_new = np.empty((nlay_new, nrow, ncol))
+
+    idx_new = 0
+    for ilay in range(nlay):
+        nsub = nsub_layers[ilay]
+        for isub in range(nsub):
+            frac_top = isub / nsub
+            frac_bot = (isub + 1) / nsub
+            idomain_new[idx_new] = idomain[ilay]
+            ztop_new[idx_new] = ztop[ilay] - (ztop[ilay] - zbot[ilay]) * frac_top
+            zbot_new[idx_new] = ztop[ilay] - (ztop[ilay] - zbot[ilay]) * frac_bot
+            idx_new += 1
+
+    return nlay_new, idomain_new, ztop_new, zbot_new
+
+def subdivide_array(arr, nsub_layers):
+    """
+    Repeat an array along the first axis according to custom subdivisions.
+
+    Parameters
+    ----------
+    arr : ndarray, shape (nlay, ...)
+        Original array (1D, 2D, or 3D) where axis=0 is layers.
+    nsub_layers : list or array of int, length = nlay
+        Number of subdivisions for each parent layer.
+
+    Returns
+    -------
+    arr_new : ndarray
+        New array with shape (sum(nsub_layers), ...)
+    """
+    import numpy as np
+    return np.concatenate(
+        [np.repeat(arr[[i]], nsub_layers[i], axis=0) for i in range(len(nsub_layers))],
+        axis=0)
+
+
 # ==========================================================================================
 # ==========================================================================================
 #  VARIANT FUNCTIONS - ADVANCED & EXPERIMENTAL SYNTHETIC GEOMETRY GENERATION

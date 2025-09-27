@@ -74,8 +74,8 @@ def create_riv_spd(
         if not (isinstance(a, (float, int)) and 0 < a < 1):
             raise ValueError("For 'proportion' stage_type, 'a' must be a float strictly between 0 and 1 (0 < a < 1).")
     elif stage_type == "absolute":
-        if not (isinstance(a, (float, int)) and a > 0):
-            raise ValueError("For 'absolute' stage_type, 'a' must be a positive float or int (a > 0).")
+        if not (isinstance(a, (float, int)) and a >= 0):
+            raise ValueError("For 'absolute' stage_type, 'a' must be a positive float or int (a >= 0).")
     else:
         raise ValueError("stage_type must be either 'proportion' or 'absolute'.")
     if not (isinstance(b, (float, int)) and b > 0):
@@ -109,7 +109,7 @@ def create_riv_spd(
             # Ensure still below stage
             riv_bottom = min(riv_bottom, riv_stage - 0.01)        
 
-        assert ztop[k, i, j] > riv_stage > riv_bottom > cell_bottom, (
+        assert ztop[k, i, j] >= riv_stage >= riv_bottom > cell_bottom, (
             f"Inconsistent elevations for cell (k={k}, i={i}, j={j}): "
             f"ztop={ztop[k, i, j]}, riv_stage={riv_stage}, riv_bottom={riv_bottom}, cell_bottom={cell_bottom}"
         )

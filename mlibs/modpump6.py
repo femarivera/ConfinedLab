@@ -112,6 +112,7 @@ def iterate_pumping_rate_steady(model_ws,
                                 figure_dir,
                                 csv_output_path, 
                                 boundary_keywords = None,
+                                layers=False,
                                 animate=False,
                                 animation_name = "cross_section_animation_ss.gif",
                                 duration=0.5, 
@@ -137,6 +138,7 @@ def iterate_pumping_rate_steady(model_ws,
         figure_dir (str): Directory to save figures.
         csv_output_path (str): Path to the CSV output file.
         boundary_keywords (list of str, optional): List of boundary condition keywords to include in cross-section plots.
+        layers (bool): Whether to plot layers legend in cross-section plots.
         animate (bool): Whether to create an animation of cross-sections.
         animation_name (str): Name of the output animation file.
         duration (float): Duration (in seconds) for each frame in the animation.
@@ -230,7 +232,7 @@ def iterate_pumping_rate_steady(model_ws,
             modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, row, 
                                             model_ws,
                                             boundary_keywords = boundary_keywords,
-                                            flow_dir = False, surface = True, layers=True,
+                                            flow_dir = False, surface = True, layers=layers,
                                             show = False, save = False, ax=ax)
             plt.title(f"Cross-Section for Total Pumping Rate: {abs(sum(q_tuple)):.1f} m³/day")
 

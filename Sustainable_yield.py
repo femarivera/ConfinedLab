@@ -10,7 +10,7 @@ import pandas as pd
 sys.path.append('..')
 from mlibs import modpump6 # type: ignore
 
-ITERATE = False  # Set to True to run the iteration process
+ITERATE = True  # Set to True to run the iteration process
 ESTIMATE = True  # Set to True to run the sustainable yield estimation
 
 planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000] # In years
@@ -51,23 +51,21 @@ head_file_name = "head_obs_t.csv"
 # Define paths to inputs of the sustainable yield estimation
 input_folder = summary_dir # Takes as input the path to the summary of the yield iterations
 
+planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000] # In years
+pump_start = 7587000 # In model totim units (days)
 # Define start time of pumping, planning horizons and constraints
 constraints = [
     { 'label': "Spring discharge all zones", 'id': "drn_all", 'constrain': "DRN",
     'flow': "NET", 'zone': "ALL", 'threshold_type': "RELATIVE", 'threshold': 0.9,
     'reference': None, 'neighbour_zones': None, 'color' : "Purple" },
 
-    #{ 'label': "River discharge zone 1", 'id': "riv_1", 'constrain': "RIV",
-    #  'flow': "NET", 'zone': 1, 'threshold_type': "RELATIVE", 'threshold': 0.9,
-    #  'reference': None, 'neighbour_zones': None, 'color' : "Blue" },
+    { 'label': "River discharge zone 1", 'id': "riv_1", 'constrain': "RIV",
+     'flow': "NET", 'zone': 1, 'threshold_type': "RELATIVE", 'threshold': 0.9,
+     'reference': None, 'neighbour_zones': None, 'color' : "Blue" },
 
-    # { 'label': "River discharge zone 3", 'id': "riv_3", 'constrain': "RIV",
-    # 'flow': "NET", 'zone': 3, 'threshold_type': "RELATIVE", 'threshold': 0.9,
-    # 'reference': None, 'neighbour_zones': None, 'color' : "lightblue" },
-
-    #{ 'label': "Leakage zone 3", 'id': "leak_3", 'constrain': "LEAKAGE",
-    #'flow': "NET", 'zone': 3, 'threshold_type': "ABSOLUTE", 'threshold': -40,
-    #'reference': None, 'neighbour_zones': [2,4], 'color' : "orange" },
+    { 'label': "Leakage zone 3", 'id': "leak_3", 'constrain': "LEAKAGE",
+    'flow': "NET", 'zone': 3, 'threshold_type': "ABSOLUTE", 'threshold': -40,
+    'reference': None, 'neighbour_zones': [2,4], 'color' : "orange" },
 
     { 'label': "Lateral outflow zone 3", 'id': "ghb_3", 'constrain': "GHB",
     'flow': "NET", 'zone': 3, 'threshold_type': "ABSOLUTE", 'threshold': 0,

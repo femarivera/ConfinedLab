@@ -449,6 +449,13 @@ def plot_bud_time_series(file_path,
     else:
         raise ValueError("time_units must be 'days' or 'years'")
     
+    # Find the global max across all relevant columns
+    ymax = max(
+    data[columns_in].to_numpy().max(),
+    data[columns_out].to_numpy().max(),
+    data_total_in.max(),
+    data_total_out.max())
+
     # Create a figure with subplots
     fig, axs = plt.subplots(2, 2, figsize=figsize)
 
@@ -459,6 +466,7 @@ def plot_bud_time_series(file_path,
     axs[0, 0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
     axs[0, 0].set_ylabel("m³/day", fontsize=fontsize/1.2)
     axs[0, 0].legend(fontsize=fontsize/1.2)
+    axs[0, 0].set_ylim(0, ymax*1.1)  # Set y-axis limit based on global max
     axs[0, 0].grid()
 
     # Plot outflow components (excluding TOTAL_OUT and STO columns)
@@ -468,6 +476,7 @@ def plot_bud_time_series(file_path,
     axs[0, 1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
     axs[0, 1].set_ylabel("m³/day", fontsize=fontsize/1.2)
     axs[0, 1].legend(fontsize=fontsize/1.2)
+    axs[0, 1].set_ylim(0, ymax*1.1)  # Set y-axis limit based on global max
     axs[0, 1].grid()
 
     # TOTAL IN and TOTAL OUT
@@ -477,6 +486,7 @@ def plot_bud_time_series(file_path,
     axs[1, 0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
     axs[1, 0].set_ylabel("m³/day", fontsize=fontsize/1.2)
     axs[1, 0].legend(fontsize=fontsize/1.2)
+    axs[1, 0].set_ylim(0, ymax*1.1)  # Set y-axis limit based on global max
     axs[1, 0].grid()
 
     # Compute and plot CHANGE IN STORAGE (STORAGE OUT - STORAGE IN)
@@ -946,6 +956,13 @@ def plot_zone_budget(csv_path,
         data_in = zone_data[zone_inflow_columns].sum(axis=1)
         data_out = zone_data[zone_outflow_columns].sum(axis=1)
 
+        ymax = max(
+        zone_data[zone_inflow_columns].to_numpy().max(),
+        zone_data[zone_outflow_columns].to_numpy().max(),
+        data_in.max(),
+        data_out.max()
+)
+
         # Create a subplot for inflows and outflows
         fig, ax = plt.subplots(2, 2, figsize=figsize, constrained_layout=True)
         
@@ -956,6 +973,7 @@ def plot_zone_budget(csv_path,
         ax[0,0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         ax[0,0].set_ylabel('Flow [m³/day]', fontsize=fontsize/1.2)
         ax[0,0].legend(fontsize=fontsize/1.2)
+        ax[0,0].set_ylim(0, ymax*1.1)  # Set y-axis limit based on global max
         ax[0,0].grid()
         
         # Plot outflows
@@ -965,6 +983,7 @@ def plot_zone_budget(csv_path,
         ax[0,1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         ax[0,1].set_ylabel('Flow [m³/day]', fontsize=fontsize/1.2)
         ax[0,1].legend(fontsize=fontsize/1.2)
+        ax[0,1].set_ylim(0, ymax*1.1)  # Set y-axis limit based on global max
         ax[0,1].grid()
 
         # Plot TOTAL IN TOTAL OUT
@@ -974,6 +993,7 @@ def plot_zone_budget(csv_path,
         ax[1,0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         ax[1,0].set_ylabel('Flow [m³/day]', fontsize=fontsize/1.2)
         ax[1,0].legend(fontsize=fontsize/1.2)
+        ax[1,0].set_ylim(0, ymax*1.1)  # Set y-axis limit based on global max
         ax[1,0].grid()
         
         # Plot change in storage
@@ -1513,7 +1533,7 @@ def plot_residual_diffusion(
     else:
         plt.show()
 
-def animate_storage_cross_section(
+def animate_sto_cb_cross_section(
         gwf,
         cb,                  # CellBudgetFile object
         nrow,                # Row index for cross-section

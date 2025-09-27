@@ -67,6 +67,21 @@ import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # ------------------------------------------------------------------------------- #
+# --------------------------- MODEL RUN CONTROL --------------------------------- #
+# ------------------------------------------------------------------------------- #
+
+boundary_keywords = ["GHB", "WEL"] #List of boundaries used in the model for plotting
+heterogeneity = True # If True, generates random hydraulic conductivity fields
+
+STEADY = False # Runs the steady state model
+plot_steady = True # Plots steady state outputs
+iterate = True # Iterates pumping rates over steady state model. Uses q_values defined above
+
+TRANSIENT = True # Runs the transient model
+plot_transient = True # Plots transient outputs
+animate = False # Animates transient cross sections
+
+# ------------------------------------------------------------------------------- #
 # --------------------------------- MODEL SETUP --------------------------------- #
 # ------------------------------------------------------------------------------- #
 
@@ -91,6 +106,7 @@ kh = par_df_to_1Darray(par_df, "kh") # Horizontal hydraulic conductivity in m/d
 kv = par_df_to_1Darray(par_df, "kv") # Vertical hydraulic conductivity in m/d
 sy = par_df_to_1Darray(par_df, "sy") # Specific yield (adimensional)
 ss = par_df_to_1Darray(par_df, "ss") # Specific storage (m-1)
+drn_cond = par_df_to_1Darray(par_df, "drn_cond") # Drain conductance (m2/d)
 R = par_df_to_1Darray(par_df, "rech") # Recharge (m/d)
 
 # Set model grid parameters
@@ -102,21 +118,6 @@ length = float(grid_df["lcol"][0]) # Total lenght of model in meters
 width = float(grid_df["lrow"][0]) # Total width of model in meters
 dcol = int(grid_df["dcol"][0]) # Column size in meters
 drow = int(grid_df["drow"][0]) # Row size in meters
-
-# ------------------------------------------------------------------------------- #
-# --------------------------- MODEL RUN CONTROL --------------------------------- #
-# ------------------------------------------------------------------------------- #
-
-boundary_keywords = ["GHB", "WEL"] #List of boundaries used in the model for plotting
-heterogeneity = True # If True, generates random hydraulic conductivity fields
-
-STEADY = False # Runs the steady state model
-plot_steady = True # Plots steady state outputs
-iterate = False # Iterates pumping rates over steady state model. Uses q_values defined above
-
-TRANSIENT = True # Runs the transient model
-plot_transient = True # Plots transient outputs
-animate = False # Animates transient cross sections
 
 # ------------------------------------------------------------------------------- #
 # --------------------------- GEOMETRY GENERATION ------------------------------- #
@@ -187,61 +188,23 @@ if heterogeneity:
 # ----------------------- LAYER SUBDIVISION -------------------------------------- #
 # ------------------------------------------------------------------------------- #
 
-nsub = 3
-def subdivide_layers(idomain, ztop, zbot, nsub=nsub):
-    """
-    Subdivide structured grid layers into thinner layers.
-
-    Parameters
-    ----------
-    idomain : ndarray, shape (nlay, nrow, ncol)
-        Active/inactive array.
-    ztop : ndarray, shape (nlay, nrow, ncol)
-        Top elevation of each cell.
-    zbot : ndarray, shape (nlay, nrow, ncol)
-        Bottom elevation of each cell.
-    nsub : int
-        Number of subdivisions per layer.
-
-    Returns
-    -------
-    idomain_new, ztop_new, zbot_new
-    """
-    nlay, nrow, ncol = idomain.shape
-    nlay_new = nlay * nsub
-
-    idomain_new = np.repeat(idomain, nsub, axis=0)
-    ztop_new = np.empty((nlay_new, nrow, ncol))
-    zbot_new = np.empty((nlay_new, nrow, ncol))
-
-    for ilay in range(nlay):
-        for isub in range(nsub):
-            idx = ilay * nsub + isub
-            frac_top = isub / nsub
-            frac_bot = (isub + 1) / nsub
-            ztop_new[idx] = ztop[ilay] - (ztop[ilay] - zbot[ilay]) * frac_top
-            zbot_new[idx] = ztop[ilay] - (ztop[ilay] - zbot[ilay]) * frac_bot
-
-    return idomain_new, ztop_new, zbot_new
-
-# Update number of layers
-nlay = nlay * nsub
-
+nsub = [3,3,3,3,3]
 #Subdivide layers
-idomain, ztop_array, zbot = subdivide_layers(idomain, ztop_array, zbot, nsub=3)
+nlay, idomain, ztop_array, zbot = modgeom6.subdivide_layers(idomain, ztop_array, zbot, nsub)
 
-#Update parameter 1D arrays (size nlay)
-kh = np.repeat(kh, nsub)
-sy = np.repeat(sy, nsub)
-ss = np.repeat(ss, nsub)
-base_thicknesses = np.repeat(base_thicknesses, nsub)
-R = np.repeat(R, nsub)
+# Subdivide other arrays (size nlay)
+kh = modgeom6.subdivide_array(kh, nsub)
+sy = modgeom6.subdivide_array(sy, nsub)
+ss = modgeom6.subdivide_array(ss, nsub)
+drn_cond = modgeom6.subdivide_array(drn_cond, nsub)
+base_thicknesses = modgeom6.subdivide_array(base_thicknesses, nsub)
+R = modgeom6.subdivide_array(R, nsub)
+zone_array = modgeom6.subdivide_array(zone_array, nsub)
+kh_array = modgeom6.subdivide_array(kh_array, nsub)
 
 #Update thickness, irch, R_array, zone_array and kh_array
 thickness_array = ztop_array - zbot
 irch = modgeom6.compute_irch(idomain)
-zone_array = np.repeat(zone_array, nsub, axis=0)
-kh_array = np.repeat(kh_array, nsub, axis=0)
 R_array = modgeom6.compute_recharge(irch, R)
 
 # ------------------------------------------------------------------------------- #
@@ -274,9 +237,9 @@ ims = flopy.mf6.ModflowIms(sim, pname="ims",
                            print_option="SUMMARY",
                            complexity="COMPLEX",
                            outer_dvclose=0.001,
-                           outer_maximum=10000,
+                           outer_maximum=1000,
                            under_relaxation="NONE",
-                           inner_maximum=10000,
+                           inner_maximum=1000,
                            inner_dvclose=0.001,
                            rcloserecord=0.001,
                            linear_acceleration="BICGSTAB",
@@ -303,7 +266,7 @@ ic = flopy.mf6.ModflowGwfic(gwf,
 npf = flopy.mf6.ModflowGwfnpf(gwf,
                               pname = "npf",
                               save_specific_discharge = True,
-                              icelltype=[1, 1, 1, 1, 1]*nsub, 
+                              icelltype= modgeom6.subdivide_array(np.array([1, 1, 1, 1, 1]), nsub), 
                               k=kh_array,
                               k33=kh_array/10,
                               filename=f"{model_name}.npf")
@@ -330,12 +293,12 @@ oc = flopy.mf6.ModflowGwfoc(
 #     riv_cells,
 #     ztop_array,
 #     thickness_array,
-#     np.repeat(np.array([kh[0]/100,kh[1]*10,kh[2]/10,kh[3]*10,kh[4]/10]), nsub, axis=0),
+#     modgeom6.subdivide_array(np.array([kh[0],kh[1]*10,kh[2],kh[3]*10,kh[4]]), nsub),
 #     drow,
 #     river_width=1,
 #     riverbed_thickness=1,
-#     stage_type="absolute",
-#     a=5,
+#     stage_type="proportion",
+#     a=0.3,
 #     b=1,
 #     conc=None)
 # riv1 = flopy.mf6.ModflowGwfriv(gwf, 
@@ -345,14 +308,13 @@ oc = flopy.mf6.ModflowGwfoc(
 #                               filename = f"{model_name}.riv")
 
 # Drain package
-drn_cells1 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 0, ncol-1)
-#drn_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 150, 202)
-drn_cells = drn_cells1 #+ drn_cells2
+drn_cells1 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, nrow//2, nrow//2, 0, ncol-1, zones = [1,2,3,4,5])
+drn_cells = drn_cells1 
 drn_spd = modbound6.create_drn_spd(
     drn_cells,
     ztop_array,
     thickness_array,
-    np.repeat(np.array([kh[0]*1000,1,kh[2]*100000,1,kh[4]*100000]), nsub, axis=0),
+    drn_cond,
     drow,
     drain_width=1,
     drainbed_thickness=1,
@@ -402,7 +364,7 @@ wel = flopy.mf6.ModflowGwfwel(gwf,
 ghb_1 = ztop_array[0,0,ncol-1]-2
 ghb_spd1 = {}
 ghb_spd1[0] = [
-    ((ilay, 0, ncol-1), ghb_1, 1000 * kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
+    ((ilay, 0, ncol-1), ghb_1, 100 * kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
     for ilay in range(nlay)]
 
 # GHB in the top of first layer
@@ -609,7 +571,7 @@ if TRANSIENT:
     # Compute recharge arrays per time step
     tas_data = {}
     for i, t in enumerate(time_steps):
-        R = np.repeat(R_vectors[i],nsub)
+        R = modgeom6.subdivide_array(R_vectors[i], nsub)
         recharge_array = modgeom6.compute_recharge(irch, R)  # shape (nrow, ncol)
         tas_data[t] = recharge_array
 
@@ -700,8 +662,8 @@ if TRANSIENT:
     if plot_transient:
         
         # Select time step, period, and layer to plot
-        ts_num = 0
         sp_num = nper - 1 
+        ts_num = 0
         layer = 0
         elapsed_time = modtransient6.elapsed_time(perioddata, sp_num, ts_num)
 
@@ -712,6 +674,9 @@ if TRANSIENT:
 
         hobj = flopy.utils.HeadFile(f"{output_folder}/{model_name_tr}.hds")
         transient_heads = hobj.get_alldata()
+
+        cb = gwf.oc.output.budget()
+        cb.get_data(idx=0, full3D=True) #Get cell budget file
 
         budget_file_t = f"{output_folder}/{model_name_tr}_budget.csv"
 
@@ -763,7 +728,17 @@ if TRANSIENT:
                                                 f"{figure_folder}/net_flow_ts.png",
                                                 show=False, save=True, tau = None, 
                                                 time_units="years")
-
+        
+        modtransient6.plot_storage_change_rate(budget_file_t, 
+                            f"{figure_folder}/storage_change_rate.png", 
+                            show=False, 
+                            save=True, 
+                            figsize=(14, 12), 
+                            fontsize=14,
+                            xlim=None,  # Tuple for x-axis limits
+                            ylim=None,
+                            time_units="years")
+        
         #--------------------------------------- ZONE BUDGET ---------------------------------------------#
         
         modtransient6.plot_zone_budget(zonebud_file_t, figure_folder, show=False, save=True, 
@@ -775,10 +750,47 @@ if TRANSIENT:
                                         5: "Confined Aquifer"}, 
                                         time_units="years")
         
-        modtransient6.plot_water_to_wells_zonebud(zonebud_file_t, figure_folder, 
-                                                  show=False, save=True, 
-                                                  time_units="years")
+        # modtransient6.plot_water_to_wells_zonebud(zonebud_file_t, figure_folder, 
+        #                                           show=False, save=True, 
+        #                                           time_units="years")
 
+
+        # ------------------------------------- RELAXATION TIMES ------------------------------------------ #
+        
+        # start = 3600000 #start of the step change in model units
+        # step = 18000 #Size of the steps in model units
+        # n = 50
+        # end = start + (step*n)
+
+        # for t in range(start, end, step):
+        #     modtransient6.plot_residual_diffusion(  gwf=gwf,
+        #                                             start_time=start,
+        #                                             time=t,
+        #                                             perioddata=perioddata,
+        #                                             nrow=nrow//2,
+        #                                             transient_heads=transient_heads,
+        #                                             steady_state_heads=steady_state_heads,
+        #                                             title=f"Absolute residual difussion in hydraulic heads after {int((t - start)/360)} years",
+        #                                             label="Head difference (m)",
+        #                                             vmin=0.01,
+        #                                             vmax=None,
+        #                                             save=True,
+        #                                             output_folder=f"{figure_folder}/Residual_diffusion", 
+        #                                             plot_name = f"Residual_diffusion_{t}.png" )
+
+        # modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
+
+        # modtransient6.animate_storage_cross_section(
+        #                                                 gwf,
+        #                                                 cb, # CellBudgetFile object
+        #                                                 nrow//2,  # Row index for cross-section
+        #                                                 f"{figure_folder}/cross_sections_sto",   # Folder to save individual plots
+        #                                                 f"{figure_folder}/animation_sto.gif",    # Path to save GIF
+        #                                                 boundary_keywords=None,
+        #                                                 show=False, save=True,
+        #                                                 figsize=(19, 6), fontsize=14,
+        #                                                 gif_start=30, gif_step=50, duration=250,
+        #                                                 vmin=-0.001, vmax=0.001)
         #--------------------------------------- TRANSIENT ANIMATION ---------------------------------------------#
 
         if animate:
@@ -786,9 +798,9 @@ if TRANSIENT:
                                         f"{figure_folder}/cross_sections_tr",
                                         f"{figure_folder}/cross_section_animation_tr.gif",
                                         boundary_keywords = boundary_keywords,
-                                        flow_dir = False, surface = True, layers=True,
+                                        flow_dir = False, surface = True, layers=False,
                                         show=False, save=True, figsize = (19, 4), 
-                                        gif_start=0, gif_step=10, duration=250)
+                                        gif_start=0, gif_step=20, duration=250)
 
 end_time = time.time()
 print(f"Total execution time: {end_time - start_time:.2f} seconds")

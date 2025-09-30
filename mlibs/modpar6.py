@@ -20,8 +20,8 @@
 #  - Helper functions to get variogram parameters according to common summary statistics of prior data/knowledge
 
 import numpy as np
-from math import log, sqrt
 from scipy.stats import norm
+from scipy.fft import fftn, ifftn, fftfreq
 
 def moments_from_arithmetic_mean_variance(arith_mean, arith_var):
     """
@@ -42,7 +42,7 @@ def moments_from_arithmetic_mean_variance(arith_mean, arith_var):
     sigma2 = np.log(1.0 + v / m**2) #Can be used as an approximation of the sill for a variogram of Z=ln(K)
     mu = np.log(m) - 0.5 * sigma2
     geom_mean = np.exp(mu)
-    sigma = sqrt(sigma2)
+    sigma = np.sqrt(sigma2)
 
     return geom_mean, mu, sigma2, sigma
 
@@ -84,11 +84,11 @@ def moments_from_log_mean_variance(log_mean, log_var, log_base=10):
     mu_b = log_mean
     sigma2_b = log_var
     
-    mu = mu_b * log(log_base)
-    sigma2 = sigma2_b * ((log(log_base))**2) #Can be used as an approximation of the sill for a variogram of Z=ln(K)
+    mu = mu_b * np.log(log_base)
+    sigma2 = sigma2_b * ((np.log(log_base))**2) #Can be used as an approximation of the sill for a variogram of Z=ln(K)
 
     geom_mean = np.exp(mu)
-    sigma = sqrt(sigma2)
+    sigma = np.sqrt(sigma2)
     return geom_mean, mu, sigma2, sigma
 
 def generate_random_field(shape, variogram_type="exponential",
@@ -119,8 +119,6 @@ def generate_random_field(shape, variogram_type="exponential",
     Returns:
         np.ndarray: 2D array of shape (nx, ny) representing the log-normal random field with spatial correlation.
     """
-    import numpy as np
-    from scipy.fft import fftn, ifftn, fftfreq
 
     rng = np.random.default_rng(seed)
     nx, ny = shape
@@ -198,7 +196,6 @@ def stack_fields_to_3D(field_list, nlay, nrow, ncol):
     Raises:
         ValueError: If input dimensions do not match.
     """
-    import numpy as np
 
     if not isinstance(field_list, (list, tuple)):
         raise ValueError("field_list must be a list or tuple of 2D arrays.")

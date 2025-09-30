@@ -10,6 +10,10 @@ import pandas as pd
 sys.path.append('..')
 from mlibs import modpump6 # type: ignore
 
+# --------------------------------------------------------------------------------------- #
+# ------------------------------- RUN CONTROL ------------------------------------------ #
+# --------------------------------------------------------------------------------------- #
+
 ITERATE = True  # Set to True to run the iteration process
 ESTIMATE = True  # Set to True to run the sustainable yield estimation
 

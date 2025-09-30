@@ -22,9 +22,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import sys
+import imageio
+import flopy
+
+from scipy.optimize import curve_fit
+from sklearn.metrics import r2_score
 
 # Import local modules
-import sys
 sys.path.append('..')
 from mlibs import modplot6 # type: ignore
 
@@ -81,9 +86,7 @@ def plot_head_time_series(head_file_path,
     Returns:
         None. Displays and/or saves a plot showing groundwater head values over time for each observation.
     """
-    import matplotlib.pyplot as plt
-    import os
-    
+
     # Retrieve head observation data using Flopy
     #csv = gwf.head_obs.output.obs(f=head_file_path).get_data()
     csv = pd.read_csv(head_file_path)
@@ -421,9 +424,6 @@ def plot_bud_time_series(file_path,
         3. Total Inflows and Total Outflows over time.
         4. Cumulative change in Storage over time.
     """
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import os
 
     # Load the CSV file
     data = pd.read_csv(file_path)
@@ -546,10 +546,6 @@ def plot_net_flow_time_series(file_path,
         A figure with time series plots showing the difference between inflow and outflow
         for each component.
     """
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import os
 
     # Load the CSV file
     data = pd.read_csv(file_path)
@@ -773,8 +769,6 @@ def plot_bud_sum_transient(file_path,
     Outputs:
         A figure with subplots for inflow, outflow, total flows, and change in storage.
     """
-    import pandas as pd
-    import matplotlib.pyplot as plt
 
     # Load the CSV file
     data = pd.read_csv(file_path)
@@ -1213,10 +1207,6 @@ def plot_storage_change_rate(file_path,
     Outputs:
         A figure with the storage change rate time series.
     """
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import os
 
     # Load the CSV file
     data = pd.read_csv(file_path)
@@ -1293,10 +1283,6 @@ def plot_storage_change(file_path,
     Outputs:
         A figure with the cumulative change in storage time series.
     """
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import os
 
     # Load the CSV file
     data = pd.read_csv(file_path)
@@ -1493,9 +1479,6 @@ def plot_residual_diffusion(
     plot_name : str
         Name of the plot file (e.g., "residual_diffusion.png").
     """
-    import numpy as np
-    import matplotlib.pyplot as plt
-    import flopy
 
     # Determine start and end steps
     start_step = timestep_index_from_totim(perioddata, start_time)[0]
@@ -1564,9 +1547,6 @@ def animate_sto_cb_cross_section(
         duration (float): Frame duration in seconds.
         vmin, vmax (float): Color scale limits for consistent animation.
     """
-    import os
-    import numpy as np
-    import imageio
 
     os.makedirs(cs_output_folder, exist_ok=True)
 
@@ -1649,10 +1629,6 @@ def plot_storage_change_rate_with_stabilization(file_path,
         time_units (str or None): Units for time axis label. If None, defaults to 'days'. If "years", converts days to years.
                                  Assumes model inputs in days by default.
     """
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import os
 
     # Load the CSV file
     data = pd.read_csv(file_path)
@@ -1752,10 +1728,6 @@ def plot_storage_change_with_stabilization(file_path,
     Outputs:
         A figure with the cumulative change in storage time series, with a marker for the stabilization point if applicable.
     """
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import os
 
     # Load the CSV file
     data = pd.read_csv(file_path)
@@ -1824,12 +1796,6 @@ def plot_storage_change_with_stabilization(file_path,
         plt.close(fig)
 
 def fit_time_series(csv_path, columns, tau_guess, tstart=0, output_path=None, show=False, save=False, fig_size=(14, 12)):
-    import numpy as np
-    import pandas as pd
-    from scipy.optimize import curve_fit
-    from sklearn.metrics import r2_score
-    import matplotlib.pyplot as plt
-    import os
 
     # Load CSV
     df = pd.read_csv(csv_path)
@@ -1908,12 +1874,6 @@ def fit_time_series(csv_path, columns, tau_guess, tstart=0, output_path=None, sh
     return fit_results
           
 def fit_time_series2(csv_path, columns, tau_guess, tstart=0, output_path=None, show=False, save=False, fig_size=(14, 12)):
-    import numpy as np
-    import pandas as pd
-    from scipy.optimize import curve_fit
-    from sklearn.metrics import r2_score
-    import matplotlib.pyplot as plt
-    import os
 
     # Load CSV
     df = pd.read_csv(csv_path)
@@ -2019,10 +1979,6 @@ def plot_net_flow_time_series_with_equilibrium_markers(
         tau (int or float): Time interval for computing delta stabilization criteria.
         boundary_keywords (list of str or None): List of keywords to filter columns to be analyzed. If None, the analysis is performed on all curves.
     """
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import os
 
     # Load the CSV file
     data = pd.read_csv(file_path)

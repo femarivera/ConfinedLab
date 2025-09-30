@@ -33,18 +33,11 @@ import os
 import sys
 import numpy as np
 import pandas as pd
-
 import flopy
-from flopy.utils.geometry import Point, LineString, MultiPoint
-from flopy.discretization import StructuredGrid
-from flopy.utils.gridintersect import GridIntersect
-import flopy.utils.binaryfile as bf
 
 # Plot settings
-import matplotlib
 #matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-
 plt.rc('font', family='serif', size=9)
 sgcol_width = 9/2.54
 mdcol_width = 14/2.54

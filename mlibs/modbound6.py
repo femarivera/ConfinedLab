@@ -20,6 +20,8 @@
 #  - Input validation for clarity and reliability in all boundary condition functions.
 #  - Utilities for extracting active cell indices from irch/idomain arrays, with options for subsetting and sampling.
 
+import numpy as np
+
 def create_riv_spd(
     cells,
     ztop,
@@ -370,7 +372,6 @@ def extract_active_cells_n(irch, idomain, n):
     Returns:
         list of (k, i, j) indices for active cells checked every n-th column.
     """
-    import numpy as np
 
     # Input checks
     nrow, ncol = irch.shape
@@ -408,8 +409,6 @@ def extract_active_cells_range(irch, idomain, row_start, row_end, col_start, col
     Returns:
         list of (k, i, j) indices for active cells within the specified submatrix.
     """
-    import numpy as np
-
     # Input checks
     nrow, ncol = irch.shape
     nlay, idom_nrow, idom_ncol = idomain.shape
@@ -447,7 +446,6 @@ def extract_active_cells_n_range(irch, idomain, n, col_start, col_end):
     Returns:
         list of (k, i, j) indices for active cells checked every n-th column within the range.
     """
-    import numpy as np
 
     nrow, ncol = irch.shape
     nlay, idom_nrow, idom_ncol = idomain.shape
@@ -489,7 +487,6 @@ def extract_active_cells_zone(irch, idomain, zone_array, row_start, row_end, col
         list of (k, i, j) indices for active cells within the specified submatrix
         that belong to the specified zones.
     """
-    import numpy as np
 
     nrow, ncol = irch.shape
     nlay, idom_nrow, idom_ncol = idomain.shape
@@ -541,7 +538,7 @@ def create_icelltype(cutoff, nlay, nrow, ncol, side="left"):
     icelltype : np.ndarray
         Array of shape (nlay, nrow, ncol).
     """
-    import numpy as np
+
     icelltype = np.zeros((nlay, nrow, ncol), dtype=int)
 
     if side == "left":
@@ -572,7 +569,6 @@ def linear_gradient_array(h1, h2, nlay, nrow, ncol):
     arr : np.ndarray
         Array of shape (nlay, nrow, ncol).
     """
-    import numpy as np
     
     # Create linear values along the column axis
     col_values = np.linspace(h1, h2, ncol)

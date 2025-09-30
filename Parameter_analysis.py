@@ -1,5 +1,6 @@
 import time
 start_time = time.time()
+
 import shutil
 import os
 import subprocess
@@ -10,6 +11,10 @@ import matplotlib.pyplot as plt
 # Import local modules
 sys.path.append('..')
 from mlibs import modpump6 # type: ignore
+
+# --------------------------------------------------------------------------------------- #
+# ------------------------------- RUN CONTROL ------------------------------------------- #
+# --------------------------------------------------------------------------------------- #
 
 ITERATE = False  # Set to True to run the iteration process
 PLOT = True  # Set to True to plot the results after all iterations

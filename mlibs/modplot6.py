@@ -17,6 +17,20 @@
 #  - Visualize cross-sections and budget summaries.
 #  - Transient simulations and animations.
 
+
+import numpy as np
+import flopy
+import pandas as pd
+import os
+import re
+
+import matplotlib.pyplot as plt
+from matplotlib.cm import get_cmap
+from matplotlib.lines import Line2D
+from matplotlib.colors import LogNorm
+import imageio
+
+
 def plot_map_view(gwf, 
                   head, 
                   qx, 
@@ -52,10 +66,6 @@ def plot_map_view(gwf,
     Outputs:
         Displays the map view plot and/or saves it to a file.
     """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import flopy
-    import os
 
     # Input checks
     if gwf is None:
@@ -196,12 +206,6 @@ def plot_cross_section_row(gwf,
     Outputs:
         Displays the cross-section plot and/or saves it to a file.
     """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import flopy
-    from matplotlib.cm import get_cmap
-    from matplotlib.lines import Line2D
-    import os
 
     # Input checks
     if gwf is None:
@@ -367,13 +371,6 @@ def plot_cross_section_col(gwf,
         Displays the cross-section plot and/or saves it to a file.
     """
 
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import flopy
-    from matplotlib.cm import get_cmap
-    from matplotlib.lines import Line2D
-    import os
-
     # Input checks
     if gwf is None:
         raise ValueError("gwf (MODFLOW 6 model object) must be provided.")
@@ -519,9 +516,6 @@ def plot_bud_sum_steady(file_path,
     Outputs:
         Displays and/or saves a single figure with three subplots showing inflow, outflow, and total flows.
     """
-    import pandas as pd
-    import matplotlib.pyplot as plt
-    import os
 
     # Input checks
     if not isinstance(file_path, str) or not file_path:
@@ -655,12 +649,6 @@ def plot_cross_section_array(gwf,
     Outputs:
         Displays the cross-section plot and/or saves it to a file.
     """
-    import matplotlib.pyplot as plt
-    import numpy as np
-    import flopy
-    from matplotlib.cm import get_cmap
-    from matplotlib.colors import LogNorm
-    import os
 
     # Input checks
 
@@ -798,10 +786,6 @@ def plot_animation(gwf, heads,
     Outputs:
         Saves cross-section images for each time step and creates an animated GIF.
     """
-    import os
-    import matplotlib.pyplot as plt
-    from matplotlib.animation import PillowWriter, FuncAnimation
-    import imageio
 
     # Input checks
     if heads.ndim != 4:
@@ -875,7 +859,6 @@ def fix_mppth_file(fpth):
         Overwrites the file with corrected scientific notation.
         Prints a message indicating the file has been corrected.
     """
-    import re
 
     # Input checks
     if not isinstance(fpth, str) or not fpth:
@@ -898,10 +881,6 @@ def fix_mppth_file(fpth):
     print(f"File '{fpth}' has been corrected for scientific notation issues.")
 
 def animate(folder_path, gif_output_path, duration=250):
-    import os
-    import matplotlib.pyplot as plt
-    from matplotlib.animation import PillowWriter, FuncAnimation
-    import imageio
 
     image_paths = [os.path.join(folder_path, f) 
                for f in os.listdir(folder_path)]

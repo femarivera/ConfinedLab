@@ -31,6 +31,7 @@
 #  and confined areas. This usually generates a simple yet realistic geometry of a multilayer system representing
 #  the typical stratigraphic configuration of a sedimentary basin without faulting or folding. 
 
+import numpy as np
 
 def compute_idomain(nlay, nrow, ncol, outcrop_cells, direction = "right"):
     """
@@ -49,9 +50,6 @@ def compute_idomain(nlay, nrow, ncol, outcrop_cells, direction = "right"):
     Returns:
         idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) with 1 for active and 0 for inactive cells.
     """
-
-    import numpy as np
-
     #input checks
     outcrop_cells = np.asarray(outcrop_cells)
     if len(outcrop_cells) != nlay:
@@ -113,7 +111,6 @@ def compute_top(
     Returns:
         top (numpy.ndarray): 2D array (nrow, ncol) of top elevations.
     """
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:
@@ -243,7 +240,6 @@ def compute_thickness(
     Returns:
         thickness_array (numpy.ndarray): 3D array (nlay, nrow, ncol) with thicknesses.
     """
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:
@@ -341,7 +337,6 @@ def compute_bottom(ztop, thickness_array):
     Returns:
         bottom (ndarray): 3D array of shape (nlay, nrow, ncol) representing the bottom elevations for each layer.
     """
-    import numpy as np
 
     # Input checks
     if thickness_array.ndim != 3:
@@ -377,7 +372,6 @@ def idomain_from_thickness(thickness_array, epsilon):
     Returns:
         idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) with 1 (active) where thickness > epsilon and 0 (inactive) otherwise.
     """
-    import numpy as np
 
     # Input checks
     if thickness_array.ndim != 3:
@@ -402,7 +396,6 @@ def idomain_from_zone(zone_array, zones):
         idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) with 0 (inactive) for specified zones,
                                  1 (active) otherwise.
     """
-    import numpy as np
 
     # Input checks
     if zone_array.ndim != 3:
@@ -427,8 +420,6 @@ def compute_irch(idomain):
     Returns:
         irch (numpy.ndarray): 2D array (nrow, ncol) where each value is the index of the topmost active layer.
     """
-
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:
@@ -455,8 +446,7 @@ def compute_recharge(irch, R):
 
     Returns:
         numpy.ndarray: 2D array of shape (nrow, ncol) with recharge values assigned based on irch.
-    """
-    import numpy as np  
+    """ 
 
     # Input checks
     if irch.ndim != 2:
@@ -491,7 +481,6 @@ def compute_ztop_array(ztop, zbot):
     Returns:
         ztop_array (numpy.ndarray): 3D array (nlay, nrow, ncol) of top elevations for each layer.
     """
-    import numpy as np
 
     # Input checks
     if ztop.ndim != 2:
@@ -528,7 +517,6 @@ def compute_3Darray(values_1d, idomain):
     Raises:
         ValueError: If input shapes are inconsistent or invalid.
     """
-    import numpy as np
 
     # Input checks
     if not isinstance(values_1d, np.ndarray):
@@ -567,7 +555,6 @@ def subdivide_layers(idomain, ztop, zbot, nsub_layers):
     -------
     idomain_new, ztop_new, zbot_new
     """
-    import numpy as np
     nlay, nrow, ncol = idomain.shape
     nlay_new = sum(nsub_layers)
 
@@ -604,7 +591,6 @@ def subdivide_array(arr, nsub_layers):
     arr_new : ndarray
         New array with shape (sum(nsub_layers), ...)
     """
-    import numpy as np
     return np.concatenate(
         [np.repeat(arr[[i]], nsub_layers[i], axis=0) for i in range(len(nsub_layers))],
         axis=0)
@@ -651,7 +637,6 @@ def compute_idomain_left(nlay, nrow, ncol, outcrop_cells):
     Returns:
         Idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) with 1 for active and 0 for inactive cells.
     """
-    import numpy as np
 
     # Input checks
     outcrop_cells = np.asarray(outcrop_cells)
@@ -693,8 +678,6 @@ def compute_idomain_right(nlay, nrow, ncol, outcrop_cells):
         Idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) with 1 for active and 0 for inactive cells.
     """
 
-    import numpy as np
-
     # Input checks
     outcrop_cells = np.asarray(outcrop_cells)
     if len(outcrop_cells) != nlay:
@@ -729,7 +712,6 @@ def compute_top_simple(idomain, outcrop_z):
     Returns:
         top (numpy.ndarray): 2D array (nrow, ncol) of top elevations.
     """
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:
@@ -774,7 +756,6 @@ def compute_slope_left_extend(idomain, outcrop_z_min, outcrop_z_max, transition_
     Returns:
         top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with extended transitions and slopes.
     """
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:
@@ -839,8 +820,6 @@ def compute_slope_left_contain(idomain, outcrop_z_min, outcrop_z_max, transition
     Returns:
         top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with contained transitions and slopes.
     """
-
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:
@@ -973,7 +952,6 @@ def compute_slope_right_contain(idomain, outcrop_z_min, outcrop_z_max, transitio
     Returns:
         top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with contained transitions and slopes.
     """
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:
@@ -1037,7 +1015,6 @@ def compute_top_left_extend(idomain, outcrop_z, transition_cells):
     by the extent specified by the `transition_cells` parameter. This can be useful for certain visualization
     or conceptual model setups, but it does not confine transitions strictly within each layer's original idomain.
     """
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:
@@ -1097,8 +1074,6 @@ def compute_top_left_contain(idomain, outcrop_z, transition_cells):
         top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with contained transitions.
     """
 
-    import numpy as np
-
     # Input checks
     if idomain.ndim != 3:
         raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
@@ -1155,7 +1130,6 @@ def compute_top_right_extend(idomain, outcrop_z, transition_cells):
     Returns:
         top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with extended transitions.
     """
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:
@@ -1214,7 +1188,6 @@ def compute_top_right_contain(idomain, outcrop_z, transition_cells):
     Returns:
         top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with contained transitions.
     """
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:
@@ -1270,7 +1243,6 @@ def compute_thickness_simple(idomain, base_thicknesses):
             Thickness is set to base_thickness for active cells (idomain == 1),
             and 0 for inactive cells (idomain == 0).
     """
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:
@@ -1309,7 +1281,6 @@ def compute_thickness_extend(idomain, base_thicknesses, transition_cells):
             smoothly transitions to 0 over transition_cells beyond the active area,
             and 0 for inactive cells outside the transition zone.
     """
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:
@@ -1370,7 +1341,6 @@ def compute_thickness_contain(idomain, base_thicknesses, transition_cells):
             smoothly transitions to 0 within the last transition_cells of the active area,
             and 0 for inactive cells.
     """
-    import numpy as np
 
     # Input checks
     if idomain.ndim != 3:

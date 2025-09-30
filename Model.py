@@ -39,7 +39,6 @@ from flopy.utils.geometry import Point, LineString, MultiPoint
 from flopy.discretization import StructuredGrid
 from flopy.utils.gridintersect import GridIntersect
 import flopy.utils.binaryfile as bf
-import pyemu
 
 # Plot settings
 import matplotlib

@@ -520,3 +520,64 @@ def extract_active_cells_zone(irch, idomain, zone_array, row_start, row_end, col
 
     return active_cells
 
+def create_icelltype(cutoff, nlay, nrow, ncol, side="left"):
+    """
+    Create a 3D array (nlay, nrow, ncol) with 1's and 0's based on cutoff column.
+    1: Convertible cell
+    0: Confined cell
+
+    Parameters
+    ----------
+    cutoff : int
+        Column index where the unconfined/confined transition happens.
+    side : str
+        "left": columns before cutoff are set to 0. Confined to the left
+        "right": columns after cutoff are set to 0. Confined to the right
+    nlay, nrow, ncol : int
+        Dimensions of the output array.
+
+    Returns
+    -------
+    icelltype : np.ndarray
+        Array of shape (nlay, nrow, ncol).
+    """
+    import numpy as np
+    icelltype = np.zeros((nlay, nrow, ncol), dtype=int)
+
+    if side == "left":
+        icelltype[..., cutoff:] = 1
+    elif side == "right":
+        icelltype[..., :cutoff] = 1
+    else:
+        raise ValueError("side must be either 'left' or 'right'.")
+
+    return icelltype
+
+def linear_gradient_array(h1, h2, nlay, nrow, ncol):
+    """
+    Create a 3D array with values linearly varying from h1 (first column)
+    to h2 (last column), constant across layers and rows.
+
+    Parameters
+    ----------
+    h1 : float
+        Value at the first column.
+    h2 : float
+        Value at the last column.
+    nlay, nrow, ncol : int
+        Dimensions of the output array.
+
+    Returns
+    -------
+    arr : np.ndarray
+        Array of shape (nlay, nrow, ncol).
+    """
+    import numpy as np
+    
+    # Create linear values along the column axis
+    col_values = np.linspace(h1, h2, ncol)
+
+    # Broadcast to full 3D shape
+    arr = np.tile(col_values, (nlay, nrow, 1))
+
+    return arr

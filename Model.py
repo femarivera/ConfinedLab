@@ -33,7 +33,6 @@ import os
 import sys
 import numpy as np
 import pandas as pd
-import geopandas as gpd
 
 import flopy
 from flopy.utils.geometry import Point, LineString, MultiPoint
@@ -46,7 +45,7 @@ import pyemu
 import matplotlib
 #matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gspec
+
 plt.rc('font', family='serif', size=9)
 sgcol_width = 9/2.54
 mdcol_width = 14/2.54
@@ -70,8 +69,8 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
 
-boundary_keywords = ["GHB", "WEL"] #List of boundaries used in the model for plotting
-heterogeneity = True # If True, generates random hydraulic conductivity fields
+boundary_keywords = ["GHB", "WEL", "DRN"] #List of boundaries used in the model for plotting
+heterogeneity = False # If True, generates random hydraulic conductivity fields
 
 STEADY = True # Runs the steady state model
 plot_steady = True # Plots steady state outputs
@@ -285,45 +284,45 @@ oc = flopy.mf6.ModflowGwfoc(
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
 #River package
-riv_cells = modbound6.extract_active_cells_zone(irch, idomain, zone_array, nrow//2, nrow//2, 0, ncol-25, zones = [1,2,3,4,5])
-#riv_cells = riv_cells[:-1] # leave the last cell
-riv_spd1 = modbound6.create_riv_spd(
-    riv_cells,
-    ztop_array,
-    thickness_array,
-    drn_cond,
-    drow,
-    river_width=1,
-    riverbed_thickness=1,
-    stage_type="absolute",
-    a=0,
-    b=1,
-    conc=None)
-riv1 = flopy.mf6.ModflowGwfriv(gwf, 
-                              pname = "riv",
-                              save_flows = True,
-                              stress_period_data = riv_spd1,
-                              filename = f"{model_name}.riv")
-
-# Drain package
-# drn_cells1 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, nrow//2, nrow//2, 0, ncol-25, zones = [1,2,3,4,5])
-# drn_cells = drn_cells1 
-# drn_spd = modbound6.create_drn_spd(
-#     drn_cells,
+# riv_cells = modbound6.extract_active_cells_zone(irch, idomain, zone_array, nrow//2, nrow//2, 0, ncol-25, zones = [1,2,3,4,5])
+# #riv_cells = riv_cells[:-1] # leave the last cell
+# riv_spd1 = modbound6.create_riv_spd(
+#     riv_cells,
 #     ztop_array,
 #     thickness_array,
 #     drn_cond,
 #     drow,
-#     drain_width=1,
-#     drainbed_thickness=1,
-#     elev_type="absolute",
+#     river_width=1,
+#     riverbed_thickness=1,
+#     stage_type="absolute",
 #     a=0,
+#     b=1,
 #     conc=None)
-# drn = flopy.mf6.ModflowGwfdrn(gwf, 
-#                               pname = "drn",
+# riv1 = flopy.mf6.ModflowGwfriv(gwf, 
+#                               pname = "riv",
 #                               save_flows = True,
-#                               stress_period_data = drn_spd,
-#                               filename = f"{model_name}.drn")
+#                               stress_period_data = riv_spd1,
+#                               filename = f"{model_name}.riv")
+
+# Drain package
+drn_cells1 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, nrow//2, nrow//2, 0, ncol-2, zones = [1,2,3,4,5])
+drn_cells = drn_cells1 
+drn_spd = modbound6.create_drn_spd(
+    drn_cells,
+    ztop_array,
+    thickness_array,
+    drn_cond,
+    drow,
+    drain_width=1,
+    drainbed_thickness=1,
+    elev_type="absolute",
+    a=0,
+    conc=None)
+drn = flopy.mf6.ModflowGwfdrn(gwf, 
+                              pname = "drn",
+                              save_flows = True,
+                              stress_period_data = drn_spd,
+                              filename = f"{model_name}.drn")
 
 # Recharge package
 rch = flopy.mf6.ModflowGwfrcha(gwf, 
@@ -368,10 +367,10 @@ ghb_spd1[0] = [
     for ilay in range(nlay)]
 
 # GHB in the top of first layer
-ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2,col_start=ncol-25, col_end=ncol-2)
-ghb_spd2 = {}
-ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j], 100 * kh[k]*dcol*width, "top_ghb") for (k, i, j) in ghb_cells2]
-ghb_spd1[0].extend(ghb_spd2[0])
+# ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2,col_start=ncol-25, col_end=ncol-2)
+# ghb_spd2 = {}
+# ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j], 100 * kh[k]*dcol*width, "top_ghb") for (k, i, j) in ghb_cells2]
+# ghb_spd1[0].extend(ghb_spd2[0])
 
 ghb = flopy.mf6.ModflowGwfghb(gwf,
                                 pname="ghb",
@@ -411,13 +410,13 @@ if STEADY:
     if plot_steady:
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                 f"{figure_folder}/cross_section_heads.png",
-                                boundary_keywords = boundary_keywords,
+                                boundary_keywords = ["WEL"],
                                 flow_dir = False, surface = False, 
                                 show=False, save=True, figsize=(19, 4), layers = False, 
                                 title="Cross section - Steady state simulation")
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                 f"{figure_folder}/cross_section_heads_qdir.png",
-                                boundary_keywords = boundary_keywords,
+                                boundary_keywords = ["WEL"],
                                 flow_dir = True, surface = True, 
                                 show=False, save=True, figsize=(19, 4), layers = False, 
                                 title="Cross section - Steady state simulation")
@@ -472,7 +471,7 @@ if STEADY:
         modpump6.iterate_pumping_rate_steady(model_ws, sim, gwf, wel_spd, wel, q_values, q_ref, budget_file, nrow//2,
                                         f"{figure_folder}",
                                         f"{output_folder}/{model_name}_modpump6_ss.csv",
-                                        boundary_keywords = boundary_keywords,
+                                        boundary_keywords = ["WEL"],
                                         animate = True, animation_name = "cross_section_animation_ss.gif",
                                         duration = 250, #In seconds, duration of each frame
                                         save_budget = True, save_wells = True, save_csv = True)
@@ -689,13 +688,13 @@ if TRANSIENT:
 
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                         f"{figure_folder}/cross_section_heads_t.png",
-                                        boundary_keywords = boundary_keywords,
+                                        boundary_keywords = ["WEL"],
                                         flow_dir = False, surface = False, layers=False,
                                         show=False, save=True, figsize = (19, 4),
                                         title=f"Cross section at time {elapsed_time} days")
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                         f"{figure_folder}/cross_section_heads_t_qdir.png",
-                                        boundary_keywords = boundary_keywords,
+                                        boundary_keywords = ["WEL"],
                                         flow_dir = True, surface = True, layers=False,
                                         show=False, save=True, figsize = (19, 4),
                                         title=f"Cross section at time {elapsed_time} days")
@@ -742,6 +741,7 @@ if TRANSIENT:
         
         #--------------------------------------- ZONE BUDGET ---------------------------------------------#
         
+        modtransient6.process_csv_zonebudget(zonebud_file_t)
         modtransient6.plot_zone_budget(zonebud_file_t, figure_folder, show=False, save=True, 
                                        zone_descriptions = {
                                         1: "Unconfined Aquifer",
@@ -751,35 +751,35 @@ if TRANSIENT:
                                         5: "Confined Aquifer"}, 
                                         time_units="years")
         
-        # modtransient6.plot_water_to_wells_zonebud(zonebud_file_t, figure_folder, 
-        #                                           show=False, save=True, 
-        #                                           time_units="years")
+        modtransient6.plot_water_to_wells_zonebud(zonebud_file_t, figure_folder, 
+                                                  show=False, save=True, 
+                                                  time_units="years")
 
 
         # ------------------------------------- RELAXATION TIMES ------------------------------------------ #
         
-        start = 3600000 #start of the step change in model units
-        step = 3600 #Size of the steps in model units
-        n = 150
-        end = start + (step*n)
+        # start = 3600000 #start of the step change in model units
+        # step = 3600 #Size of the steps in model units
+        # n = 150
+        # end = start + (step*n)
 
-        for t in range(start, end, step):
-            modtransient6.plot_residual_diffusion(  gwf=gwf,
-                                                    start_time=start,
-                                                    time=t,
-                                                    perioddata=perioddata,
-                                                    nrow=nrow//2,
-                                                    transient_heads=transient_heads,
-                                                    steady_state_heads=steady_state_heads,
-                                                    title=f"Absolute residual difussion in hydraulic heads after {int((t - start)/360)} years",
-                                                    label="Head difference (m)",
-                                                    vmin=0,
-                                                    vmax=250,
-                                                    save=True,
-                                                    output_folder=f"{figure_folder}/Residual_diffusion", 
-                                                    plot_name = f"Residual_diffusion_{t}.png" )
+        # for t in range(start, end, step):
+        #     modtransient6.plot_residual_diffusion(  gwf=gwf,
+        #                                             start_time=start,
+        #                                             time=t,
+        #                                             perioddata=perioddata,
+        #                                             nrow=nrow//2,
+        #                                             transient_heads=transient_heads,
+        #                                             steady_state_heads=steady_state_heads,
+        #                                             title=f"Absolute residual difussion in hydraulic heads after {int((t - start)/360)} years",
+        #                                             label="Head difference (m)",
+        #                                             vmin=0,
+        #                                             vmax=250,
+        #                                             save=True,
+        #                                             output_folder=f"{figure_folder}/Residual_diffusion", 
+        #                                             plot_name = f"Residual_diffusion_{t}.png" )
 
-        modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
+        # modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
 
         # modtransient6.animate_sto_cb_cross_section( gwf,
         #                                             cb, # CellBudgetFile object
@@ -797,7 +797,7 @@ if TRANSIENT:
             modplot6.plot_animation(gwf, transient_heads, qx, qy, qz, nrow//2, 
                                         f"{figure_folder}/cross_sections_tr",
                                         f"{figure_folder}/cross_section_animation_tr.gif",
-                                        boundary_keywords = boundary_keywords,
+                                        boundary_keywords = ["WEL"],
                                         flow_dir = False, surface = True, layers=False,
                                         show=False, save=True, figsize = (19, 4), 
                                         gif_start=0, gif_step=20, duration=250)

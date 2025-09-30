@@ -78,7 +78,7 @@ outcrop_zmax = np.array([200, 300, 400, 500, 500]) # Elevation (Just used when S
 outcrop_zmin = np.array([0, 200, 300, 400, 500]) # Elevation (Just used when SLOPE are set to True)
 base_thicknesses = np.array([300, 150, 200, 150, 200]) # Layer thickness in meters
 outcrop_cells = np.array([200, 150, 100, 50, 0]) 
-transition = 60 # Number of transitions cells
+transition = 50 # Number of transitions cells
 
 # Create idomain and geometry arrays
 idomain = modgeom6.compute_idomain(nlay, nrow, ncol, outcrop_cells)
@@ -86,7 +86,7 @@ ztop = modgeom6.compute_top(idomain, outcrop_z, transition=True, slope=True,
                             transition_cells=transition, transition_type="contain", 
                             outcrop_zmin=outcrop_zmin, outcrop_zmax=outcrop_zmax)
 thickness_array = modgeom6.compute_thickness(idomain, base_thicknesses, 
-                                             transition=True, transition_type="extend", 
+                                             transition=True, transition_type="contain", 
                                              transition_cells=transition)
 zbot = modgeom6.compute_bottom(ztop, thickness_array)
 idomain = modgeom6.idomain_from_thickness(thickness_array, epsilon)

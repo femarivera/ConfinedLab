@@ -390,6 +390,33 @@ def idomain_from_thickness(thickness_array, epsilon):
     
     return idomain
 
+def idomain_from_zone(zone_array, zones):
+    """
+    Create an idomain array from the zone array.
+
+    Parameters:
+        zone_array (numpy.ndarray): 3D array (nlay, nrow, ncol) containing zone index for each layer.
+        zones (list or array-like): Zone indexes of the layers to be deactivated.
+
+    Returns:
+        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) with 0 (inactive) for specified zones,
+                                 1 (active) otherwise.
+    """
+    import numpy as np
+
+    # Input checks
+    if zone_array.ndim != 3:
+        raise ValueError("zone_array must be a 3D array (nlay, nrow, ncol).")
+
+    # Start with all active
+    idomain = np.ones_like(zone_array, dtype=int)
+
+    # Deactivate where zone_array matches any of the zones
+    mask = np.isin(zone_array, zones)
+    idomain[mask] = 0
+
+    return idomain
+
 def compute_irch(idomain):
     """
     Calculate the topmost active layer index (irch) for each cell.

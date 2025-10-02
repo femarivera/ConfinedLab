@@ -29,6 +29,16 @@ import flopy
 from scipy.optimize import curve_fit
 from sklearn.metrics import r2_score
 
+# ===== Global style settings =====
+plt.rcParams['font.family'] = 'Calibri'
+plt.rcParams['font.size'] = 12
+plt.rcParams['axes.titlesize'] = 14
+plt.rcParams['axes.labelsize'] = 12
+plt.rcParams['legend.fontsize'] = 12
+plt.rcParams['xtick.labelsize'] = 10
+plt.rcParams['ytick.labelsize'] = 10
+plt.rcParams['figure.dpi'] = 300 
+
 # Import local modules
 sys.path.append('..')
 from mlibs import modplot6 # type: ignore
@@ -277,14 +287,20 @@ def process_csv_budget(csv_path):
     columns_well = [col for col in data.columns if "WEL" in col and "OUT" in col]
     columns_out = [col for col in data.columns if col.endswith("_OUT") and "WEL" not in col and "STO" not in col and col != "TOTAL_OUT"]
 
-    # Storage components
+    # Storage
     columns_storage_in = [col for col in data.columns if "STO" in col and "IN" in col]
     columns_storage_out = [col for col in data.columns if "STO" in col and "OUT" in col]
 
+    # Storage componenets
+    columns_storage_ss_in = [col for col in data.columns if "STO" in col and "IN" in col and "SS" in col]
+    columns_storage_ss_out = [col for col in data.columns if "STO" in col and "OUT" in col and "SS" in col]
+    columns_storage_sy_in = [col for col in data.columns if "STO" in col and "IN" in col and "SY" in col]
+    columns_storage_sy_out = [col for col in data.columns if "STO" in col and "OUT" in col and "SY" in col]
+
     # Compute components
     induced_recharge = data[columns_in].sum(axis=1) - reference_inflow
-    decreased_discharge = data[columns_out].sum(axis=1)
-    captured_discharge = reference_outflow - decreased_discharge
+    discharge = data[columns_out].sum(axis=1)
+    captured_discharge = reference_outflow - discharge
     total_pumped = data[columns_well].sum(axis=1)
     storage_in = data[columns_storage_in].sum(axis=1)
     storage_out = data[columns_storage_out].sum(axis=1)
@@ -302,6 +318,11 @@ def process_csv_budget(csv_path):
     from_storage_pct = (from_storage * 100 / total_pumped).where(total_pumped != 0, 0)
     capture_pct = (capture * 100 / total_pumped).where(total_pumped != 0, 0)
 
+    # Compute storage change rates per drainance, compressibility, and total
+    sto_ss = data[columns_storage_ss_out].sum(axis=1) - data[columns_storage_ss_in].sum(axis=1)
+    sto_sy = data[columns_storage_sy_out].sum(axis=1) - data[columns_storage_sy_in].sum(axis=1)
+    sto_total = sto_ss + sto_sy
+
     # Add computed components and percentages to the DataFrame
     data["Induced_Recharge"] = induced_recharge
     data["Captured_Discharge"] = captured_discharge
@@ -313,6 +334,9 @@ def process_csv_budget(csv_path):
     data["Captured_Discharge_Pct"] = captured_discharge_pct
     data["Storage_Release_Pct"] = from_storage_pct
     data["Capture_Pct"] = capture_pct
+    data["STO-SS"] = sto_ss
+    data["STO-SY"] = sto_sy
+    data["STO-TOTAL"] = sto_total
 
     # Compute net flow for each inflow/outflow pair
     net_flow_columns = []
@@ -353,15 +377,15 @@ def process_csv_zonebudget(csv_path):
         ("OUT" in col or "TO" in col) and 
         "STO" not in col and "DATA" not in col and "ZONE 0" not in col and "WEL" not in col
     ]
-    storage_out_columns = [
-        col for col in df.columns if "STO" in col and "OUT" in col
-    ]
-    storage_in_columns = [
-        col for col in df.columns if "STO" in col and "IN" in col
-    ]
-    pumped_columns = [
-        col for col in df.columns if "WEL" in col and "OUT" in col
-    ]
+    storage_out_columns = [col for col in df.columns if "STO" in col and "OUT" in col]
+    storage_in_columns = [col for col in df.columns if "STO" in col and "IN" in col]
+    pumped_columns = [col for col in df.columns if "WEL" in col and "OUT" in col]
+
+    # Storage componenets
+    columns_storage_ss_in = [col for col in df.columns if "STO" in col and "IN" in col and "SS" in col]
+    columns_storage_ss_out = [col for col in df.columns if "STO" in col and "OUT" in col and "SS" in col]
+    columns_storage_sy_in = [col for col in df.columns if "STO" in col and "IN" in col and "SY" in col]
+    columns_storage_sy_out = [col for col in df.columns if "STO" in col and "OUT" in col and "SY" in col]
 
     # Calculate reference inflow and outflow at time zero (reference state)
     reference_inflow = df.loc[df['totim'] == 0, inflow_columns].sum(axis=1).values[0]
@@ -382,6 +406,11 @@ def process_csv_zonebudget(csv_path):
     from_storage_pct = (from_storage * 100 / total_pumped).where(total_pumped != 0, 0)
     capture_pct = (capture * 100 / total_pumped).where(total_pumped != 0, 0)
 
+    # Compute storage change rates per drainance, compressibility, and total
+    sto_ss = df[columns_storage_ss_out].sum(axis=1) - df[columns_storage_ss_in].sum(axis=1)
+    sto_sy = df[columns_storage_sy_out].sum(axis=1) - df[columns_storage_sy_in].sum(axis=1)
+    sto_total = sto_ss + sto_sy
+
     # Add computed components and percentages to the DataFrame
     df["Induced_Recharge"] = induced_recharge
     df["Captured_Discharge"] = captured_discharge
@@ -391,6 +420,9 @@ def process_csv_zonebudget(csv_path):
     df["Captured_Discharge_Pct"] = captured_discharge_pct
     df["From_Storage_Pct"] = from_storage_pct
     df["Capture_Pct"] = capture_pct
+    df["STO-SS"] = sto_ss
+    df["STO-SY"] = sto_sy
+    df["STO-TOTAL"] = sto_total
 
     # Overwrite the CSV file
     df.to_csv(csv_path, index=False)
@@ -861,7 +893,8 @@ def plot_bud_sum_transient(file_path,
         plt.close(fig) 
 
 def plot_zone_budget(csv_path, 
-                     output_dir, 
+                     csv_output_dir,
+                     fig_output_dir, 
                      show = False, 
                      save = False, 
                      figsize = (14, 12),
@@ -873,7 +906,8 @@ def plot_zone_budget(csv_path,
 
     Args:
         csv_path (str): Path to the zone budget CSV file.
-        output_dir (str): Directory to save figures if save is True.
+        csv_output_dir (str): Directory to save vertical leakage data.
+        fig_output_dir (str): Directory to save the figures if save is True.
         show (bool): Display plots interactively.
         save (bool): Save plots to disk.
         figsize (tuple): Figure size in inches.
@@ -897,7 +931,6 @@ def plot_zone_budget(csv_path,
         time_axis_label = 'Time [years]'
     else:
         raise ValueError("time_units must be 'days' or 'years'")
-
 
     # Identify unique zones
     zones = df['zone'].unique()
@@ -1006,41 +1039,60 @@ def plot_zone_budget(csv_path,
 
          #Save plot
         if save:
-            image_path = os.path.join(output_dir, f'Zone {zone} budget.png')
+            image_path = os.path.join(fig_output_dir, f'Zone {zone} budget.png')
             fig.savefig(image_path, dpi=300)
             plt.close(fig) 
-    
+
     # Plot the difference "FROM ZONE x - TO ZONE x" for all other zones
-    fig2 = plt.figure(figsize = figsize)
+    # Prepare an empty dict to collect vertical leakage data
+    vertical_leakage_dict = {}
+
+    # Use unique timesteps
+    timesteps = sorted(df['totim'].unique())
+    vertical_leakage_dict['totim'] = timesteps
+
+    # Compute FROM-TO difference for each zone
     for zone in zones:
         other_zones = [f"ZONE {int(z)}" for z in zones if z != zone]
         from_columns = [f"FROM {oz}" for oz in other_zones]
         to_columns = [f"TO {oz}" for oz in other_zones]
         
-        from_to_difference = (
-            df.loc[df['zone'] == zone, from_columns].sum(axis=1) -
-            df.loc[df['zone'] == zone, to_columns].sum(axis=1)
-        )
+        # Sum over all rows for this zone at each timestep
+        differences = []
+        for t in timesteps:
+            mask = (df['zone'] == zone) & (df['totim'] == t)
+            diff = df.loc[mask, from_columns].sum(axis=1).values - df.loc[mask, to_columns].sum(axis=1).values
+            # If empty (no row for this timestep), set to 0
+            differences.append(diff[0] if len(diff) > 0 else 0)
+        
+        vertical_leakage_dict[f'ZONE_{zone}'] = differences
+
+    # Create DataFrame
+    vertical_leakage_df = pd.DataFrame(vertical_leakage_dict)
+
+    # Save to CSV
+    csv_path = os.path.join(csv_output_dir, "vertical_leakage.csv")
+    vertical_leakage_df.to_csv(csv_path, index=False)
+    print(f"Vertical leakage data saved to {csv_path}")
+
+    # Optional: Plotting
+    fig2 = plt.figure(figsize=figsize)
+    for zone in zones:
         description = zone_descriptions.get(zone, f"ZONE {zone}")
-        plt.plot(df.loc[df['zone'] == zone, 'totim'], from_to_difference, label=f'ZONE {zone} - {description}')
-    
+        plt.plot(vertical_leakage_df['totim'], vertical_leakage_df[f'ZONE_{zone}'], label=f'ZONE {zone} - {description}')
+
     plt.title('WATER TRANSFERS VIA VERTICAL LEAKAGE', fontsize=fontsize)
     plt.xlabel('Time [days]', fontsize=fontsize)
     plt.ylabel('Flow Balance (Inflows - Outflows) [m³/day]', fontsize=fontsize)
     plt.legend(fontsize=fontsize/1.2)
     plt.grid()
-
-    # Adjust layout and show plot
-    plt.ioff()
+    plt.tight_layout()
     if show:
-        plt.tight_layout()
         plt.show()
-
-    #Save plot
     if save:
-        image_path = os.path.join(output_dir, "zonebudget_summary_t.png")
+        image_path = os.path.join(fig_output_dir, "zonebudget_summary_t.png")
         fig2.savefig(image_path, dpi=300)
-        plt.close(fig2) 
+        plt.close(fig2)
 
 def plot_water_to_wells_zonebud(csv_path, 
                                 output_dir, 
@@ -1412,10 +1464,15 @@ def timestep_index_from_totim(stress_period_data, totim, tol=1e-9):
                 return ts_global, sp_num, ts_num
             # if elapsed passed totim (and wasn't close), totim falls inside the step => error
             if elapsed > totim + eps:
-                raise ValueError(
-                    f"totim {totim} falls inside a time step (end-of-step = {elapsed:.12g}). "
-                    "MODFLOW totim should be the end-of-step time."
-                )
+                # Compare distance to current elapsed and to previous elapsed
+                prev_elapsed = elapsed - float(dt)
+                dist_prev = abs(totim - prev_elapsed)
+                dist_curr = abs(totim - elapsed)
+
+                if dist_curr < dist_prev:
+                    return ts_global, sp_num, ts_num
+                else:
+                    return ts_global - 1, sp_num, ts_num - 1
             ts_global += 1
 
     # Finished loop; totim beyond final elapsed time?
@@ -1598,574 +1655,940 @@ def animate_sto_cb_cross_section(
 
         print(f"Animation saved at {gif_output_path}")
 
-# Experimental: Plotting functions with stabilization analysis
-
-def plot_storage_change_rate_with_stabilization(file_path, 
-                                                output_path, 
-                                                show=False, 
-                                                save=False, 
-                                                figsize=(14, 12), 
-                                                fontsize=14, 
-                                                tstart=0,  # Time after which the stabilization analysis starts
-                                                epsilon=None,  # Threshold for stabilization (None means skip)
-                                                xlim=None,  # Tuple for x-axis limits
-                                                ylim=None, 
-                                                time_units=None):  # Tuple for y-axis limits
+def tr_storage_change_rate(zonebudfile, csv_output_folder, fig_output_folder,
+                                   show=False, save_csv=True, save_fig=True,
+                                   figsize=(14, 8), fontsize=14,
+                                   xlim=None, ylim=None, threshold=None, start_time=0.0):
     """
-    Creates a time series plot for change in storage and marks the time step where the curve stabilizes.
+    Plot the total (summed across all zones) storage change rate 
+    from a zone budget file.
 
-    Args:
-        file_path (str): Path to the budget CSV file. The file should have a column called 'time' and 
-                         columns for storage components.
-        output_path (str): Path to save the plot if save is True.
-        show (bool): Whether to display the plot. Defaults to False.
-        save (bool): Whether to save the plot. Defaults to False.
-        figsize (tuple): Size of the figure. Defaults to (14, 12).
-        fontsize (int): Font size for plot labels and titles.
-        tstart (int or float): The time step after which the stabilization analysis starts.
-        epsilon (float or None): The stabilization threshold. If None, no stabilization analysis is done.
-        xlim (tuple or None): Limits for x-axis (e.g., (0, 500)). If None, default matplotlib behavior.
-        ylim (tuple or None): Limits for y-axis (e.g., (-10, 10)). If None, default matplotlib behavior.
-        time_units (str or None): Units for time axis label. If None, defaults to 'days'. If "years", converts days to years.
-                                 Assumes model inputs in days by default.
+    Parameters
+    ----------
+    zonebudfile : str
+        Path to the zone budget CSV file. Must contain columns: 'zone', 'totim', 'STO-TOTAL'.
+    csv_output_folder : str
+        Folder to save processed CSV file.
+    fig_output_folder : str
+        Folder to save figure.
+    show : bool, default=False
+        If True, display the plot.
+    save_csv : bool, default=True
+        If True, save the processed CSV file.
+    save_fig : bool, default=True
+        If True, save the plot figure.
+    figsize : tuple, default=(14, 8)
+        Figure size for the plot.
+    fontsize : int, default=14
+        Font size for labels and legend.
+    xlim : tuple or None, default=None
+        Limits for x-axis (years).
+    ylim : tuple or None, default=None
+        Limits for y-axis.
+    threshold : float or None, default=None
+        If provided, marks the first time abs(total) < threshold (after start_time).
+    start_time : float, default=0.0
+        Starting time (in years). Plot begins here, with x-axis reset so this = 0.
     """
 
-    # Load the CSV file
-    data = pd.read_csv(file_path)
+    # Read file
+    df = pd.read_csv(zonebudfile)
 
-    # Identify columns for storage components
-    columns_storage_in = [col for col in data.columns if "STO" in col and "IN" in col]
-    columns_storage_out = [col for col in data.columns if "STO" in col and "OUT" in col]
+    # Check required columns
+    required_cols = {'zone', 'totim', 'STO-TOTAL'}
+    if not required_cols.issubset(df.columns):
+        raise ValueError(f"Input file must contain columns: {required_cols}")
 
-    # Prepare data
-    time_data = data["time"]
-    storage_in = data[columns_storage_in].sum(axis=1)
-    storage_out = data[columns_storage_out].sum(axis=1)
-    storage_change_rate = storage_out - storage_in
+    # Convert time to years
+    df['time_years'] = df['totim'] / 360.0
 
-    # Initialize stabilization index only if epsilon is set
-    stabilization_index = None
-    stable_idx = None
+    # Subset from start_time onward
+    df = df[df['time_years'] >= start_time].copy()
 
-    if epsilon is not None:
-        stabilization_index = np.zeros_like(storage_change_rate, dtype=float)
-        stabilization_index[:tstart + 1] = 100.0  # Arbitrary high value before tstart
+    # Shift so that start_time becomes 0
+    df['time_since_start'] = df['time_years'] - start_time
 
-        for i in range(tstart + 1, len(storage_change_rate)):
-            delta_flux = storage_change_rate[i] * 100 / storage_change_rate[tstart]
-            stabilization_index[i] = np.abs(delta_flux)
+    # Aggregate by time (sum across all zones)
+    df_total = df.groupby('time_since_start')['STO-TOTAL'].sum()
 
-        stable_indices = np.where(stabilization_index <= epsilon)[0]
-        if len(stable_indices) > 0:
-            stable_idx = stable_indices[0]
+    # Plot
+    plt.figure(figsize=figsize)
+    ax = plt.gca()
+
+    line, = ax.plot(df_total.index, df_total.values, color="blue", label=None)
+
+    legend_label = "Total"
+
+    if threshold is not None:
+        crossing = df_total[df_total.abs() < threshold]
+        if not crossing.empty:
+            t_cross = crossing.index[0]
+            v_cross = crossing.iloc[0]
+
+            # Marker + vertical line
+            ax.plot(t_cross, v_cross, 'o', color=line.get_color(), markersize=8, label=None)
+            ax.axvline(t_cross, linestyle="--", color=line.get_color(), alpha=0.6, label=None)
+
+            legend_label = f"Total, tr = {t_cross:.0f} years"
+        else:
+            legend_label = "Total, tr = none"
+
+    ax.set_xlabel("Time since step change (years)", fontsize=fontsize)
+    ax.set_ylabel("Storage Change Rate", fontsize=fontsize)
+    ax.set_title("Storage Change Rate full system", fontsize=fontsize+2)
+    ax.grid(True)
+
+    if xlim is not None:
+        ax.set_xlim(xlim)
+    if ylim is not None:
+        ax.set_ylim(ylim)
+
+    ax.legend([line], [legend_label], fontsize=fontsize-2)
+
+    # Save outputs
+    if save_csv:
+        os.makedirs(csv_output_folder, exist_ok=True)
+        csv_path = os.path.join(csv_output_folder, "total_storage_change_rate.csv")
+        df_total.to_csv(csv_path, header=["STO-TOTAL"])
+    
+    if save_fig:
+        os.makedirs(fig_output_folder, exist_ok=True)
+        fig_path = os.path.join(fig_output_folder, "total_storage_change_rate.png")
+        plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+def tr_storage_change_rate_zones(zonebudfile, csv_output_folder, fig_output_folder, 
+                                   show=False, save_csv=True, save_fig=True, 
+                                   figsize=(14, 12), fontsize=14,
+                                   xlim=None, ylim=None, threshold=None, start_time=0.0):
+    """
+    Plot storage change rate for each zone from a zone budget file.
+
+    Parameters
+    ----------
+    zonebudfile : str
+        Path to the zone budget CSV file. Must contain columns: 'zone', 'totim', 'STO-TOTAL'.
+    csv_output_folder : str
+        Folder to save processed CSV file.
+    fig_output_folder : str
+        Folder to save figure.
+    show : bool, default=False
+        If True, display the plot.
+    save_csv : bool, default=True
+        If True, save the processed CSV file.
+    save_fig : bool, default=True
+        If True, save the plot figure.
+    figsize : tuple, default=(14, 12)
+        Figure size for the plot.
+    fontsize : int, default=14
+        Font size for labels and legend.
+    xlim : tuple or None, default=None
+        Limits for x-axis (years).
+    ylim : tuple or None, default=None
+        Limits for y-axis.
+    threshold : float or None, default=None
+        If provided, marks the first time abs(STO-TOTAL) < threshold (after start_time).
+        Adds a point + vertical dashed line, and annotates legend as tr=xxx years.
+    start_time : float, default=0.0
+        Starting time (in years). Plot begins here, with x-axis reset so this = 0.
+    """
+    
+    # Read file
+    df = pd.read_csv(zonebudfile)
+    
+    # Check required columns
+    required_cols = {'zone', 'totim', 'STO-TOTAL'}
+    if not required_cols.issubset(df.columns):
+        raise ValueError(f"Input file must contain columns: {required_cols}")
+    
+    # Convert time to years
+    df['time_years'] = df['totim'] / 360.0
+    
+    # Subset from start_time onward
+    df = df[df['time_years'] >= start_time].copy()
+    
+    # Shift so that start_time becomes 0
+    df['time_since_start'] = df['time_years'] - start_time
+    
+    # Pivot data: rows = shifted time, columns = zone, values = STO-TOTAL
+    df_pivot = df.pivot_table(index='time_since_start', columns='zone', values='STO-TOTAL')
+    
+    # Plot
+    plt.figure(figsize=figsize)
+    ax = plt.gca()
+    
+    legend_labels = []
+    legend_handles = []
+    
+    for zone in df_pivot.columns:
+        y = df_pivot[zone].dropna()
+        x = df_pivot.index[:len(y)]
+        
+        # Plot main line
+        line, = ax.plot(x, y, label=None)
+        
+        tr_label = f"Zone {zone}"
+        
+        if threshold is not None:
+            crossing = y[y.abs() < threshold]
+            if not crossing.empty:
+                t_cross = crossing.index[0]  # already relative to start_time
+                v_cross = crossing.iloc[0]
+                
+                # Add marker + vertical line
+                ax.plot(t_cross, v_cross, 'o', color=line.get_color(), markersize=8, label=None)
+                ax.axvline(t_cross, linestyle="--", color=line.get_color(), alpha=0.6, label=None)
+                
+                tr_label = f"Zone {zone}, tr = {t_cross:.0f} years"
+            else:
+                tr_label = f"Zone {zone}, tr = none"
+        
+        legend_handles.append(line)
+        legend_labels.append(tr_label)
+    
+    ax.set_xlabel("Time since step change (years)", fontsize=fontsize)
+    ax.set_ylabel("Storage Change Rate", fontsize=fontsize)
+    ax.set_title("Storage Change Rate per Zone", fontsize=fontsize+2)
+    ax.grid(True)
+    
+    if xlim is not None:
+        ax.set_xlim(xlim)
+    if ylim is not None:
+        ax.set_ylim(ylim)
+    
+    ax.legend(legend_handles, legend_labels, fontsize=fontsize-2)
+    
+    # Save outputs
+    if save_csv:
+        os.makedirs(csv_output_folder, exist_ok=True)
+        csv_path = os.path.join(csv_output_folder, "storage_change_rate_per_zone.csv")
+        df_pivot.to_csv(csv_path)
+    
+    if save_fig:
+        os.makedirs(fig_output_folder, exist_ok=True)
+        fig_path = os.path.join(fig_output_folder, "storage_change_rate_per_zone.png")
+        plt.savefig(fig_path, dpi=300, bbox_inches="tight")
+    
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+def absolute_head_diffusion_zones(transient_heads, steady_state_heads, times, zone_array,
+                             start_step=0, threshold_absolute=0.01, stability_threshold=0.01,
+                             array_output_folder=".", fig_output_folder=".",
+                             save_fig=True, show_fig=False,
+                             zone_descriptions=None,
+                             bounds="95p"):
+    """
+    Plots per-zone head differences (transient - steady state) with mean, median, and either
+    95% interval or mean ± std as shaded bounds. Annotates the time when mean drops below threshold_value.
+
+    Parameters:
+    -----------
+    transient_heads : np.ndarray
+        4D array (n_time, n_layer, n_row, n_col)
+    steady_state_heads : np.ndarray
+        3D array (n_layer, n_row, n_col)
+    times : np.ndarray or list
+        Simulation times corresponding to transient_heads
+    zone_array : np.ndarray
+        3D array identifying zones (n_layer, n_row, n_col)
+    start_step : int
+        Time step index to start analysis (default=0)
+    threshold_absolute : float
+        Absolute value at which the mean is considered "relaxed" (default=0.01)
+    stability_threshold : float
+        Threshold to exclude cells nearly steady at start_step (default=0.01)
+    array_output_folder : str
+        Folder path to save diff_array.npy
+    fig_output_folder : str
+        Folder path to save figure
+    save_fig : bool
+        Whether to save the figure
+    show_fig : bool
+        Whether to display the figure
+    zone_descriptions : dict, optional
+        Dictionary mapping zone numbers to descriptive names
+    bounds : str, default "95p"
+        Method for shaded bounds: "95p" = 2.5th–97.5th percentiles,
+        "stdev" = mean ± standard deviation
+    """
+
+    # Ensure output folders exist
+    os.makedirs(array_output_folder, exist_ok=True)
+    os.makedirs(fig_output_folder, exist_ok=True)
+
+    # Compute differences
+    diff_array = np.abs(transient_heads - steady_state_heads)  # (ntsp, nlay, nrow, ncol)
+
+    # Unique zones (exclude background if needed)
+    zones = np.unique(zone_array)
+    zones = zones[zones > 0]
+
+    # X-axis: time since start_step
+    time_since_start = times[start_step:] - times[start_step]  # zero at start_step
+    time_in_years = time_since_start / 360  # convert to years
+
+    # Prepare subplots
+    n_zones = len(zones)
+    fig, axes = plt.subplots(n_zones, 1, figsize=(14, 4 * n_zones), sharex=True)
+    if n_zones == 1:
+        axes = [axes]
+
+    for ax, zone in zip(axes, zones):
+        # Mask: zone selection
+        zone_mask = (zone_array == zone)
+
+        # Exclude cells nearly steady at start_step
+        exclude_mask = np.abs(diff_array[start_step]) < stability_threshold
+        combined_mask = np.logical_or(~zone_mask, exclude_mask)
+
+        # Apply mask
+        diff_zone = np.where(combined_mask, np.nan, diff_array)
+
+        # Flatten spatial dimensions
+        diff_zone_flat = diff_zone.reshape(diff_zone.shape[0], -1)
+
+        # Select only times after start_step
+        selected_diff_zone = diff_zone_flat[start_step:]
+
+        # Compute stats per timestep
+        means = np.array([np.nanmean(selected_diff_zone[t]) for t in range(selected_diff_zone.shape[0])])
+        #medians = [np.nanmedian(selected_diff_zone[t]) for t in range(selected_diff_zone.shape[0])]
+
+        if bounds == "95p":
+            lower = [np.nanpercentile(selected_diff_zone[t], 2.5) for t in range(selected_diff_zone.shape[0])]
+            upper = [np.nanpercentile(selected_diff_zone[t], 97.5) for t in range(selected_diff_zone.shape[0])]
+        elif bounds == "stdev":
+            lower = [max(means[t] - np.nanstd(selected_diff_zone[t]), 0) for t in range(selected_diff_zone.shape[0])]
+            upper = [means[t] + np.nanstd(selected_diff_zone[t]) for t in range(selected_diff_zone.shape[0])]
+        else:
+            raise ValueError("bounds must be '95p' or 'stdev'")
+
+        # Plot lines
+        #ax.plot(time_in_years, medians, color="darkblue", linestyle="-", label="Median", linewidth=1.5)
+        ax.plot(time_in_years, means, color="blue", linestyle="--", label="Mean", linewidth=1.5)
+        ax.fill_between(time_in_years, lower, upper, color="lightblue", alpha=0.3,
+                        label="95% interval" if bounds=="95p" else "Standard Deviation")
+        # Add borders
+        ax.plot(time_in_years, lower, color="black", linestyle="--", linewidth=1, alpha=0.7)
+        ax.plot(time_in_years, upper, color="black", linestyle="--", linewidth=1, alpha=0.7)
+
+        # Annotate first time mean < threshold_absolute
+        below_threshold_idx = np.where(means < threshold_absolute)[0]
+        if below_threshold_idx.size > 0:
+            idx = below_threshold_idx[0]
+            t_cross = time_in_years[idx]
+            mean_value = means[idx]
+            ax.scatter(t_cross, mean_value, color="green", s=50, zorder=5)
+            ax.axvline(t_cross, color="green", linestyle=":", linewidth=1.5)
+            ax.text(t_cross + 500, ax.get_ylim()[1]*0.9, f"tr={int(round(t_cross))} yr",
+                    color="green", rotation=0, va='top', fontweight='bold')
+
+        # Labels
+        ax.set_ylabel("Head difference: transient - steady state (m)")
+        if zone_descriptions and zone in zone_descriptions:
+            ax.set_title(f"Zone {zone}: {zone_descriptions[zone]}")
+        else:
+            ax.set_title(f"Zone {zone}")
+
+    axes[-1].set_xlabel("Time since step change (years)")
+    ax.set_ylim(bottom=0)
+    axes[0].legend()
+    plt.tight_layout()
+
+    # Save diff_array
+    np.save(os.path.join(array_output_folder, "diff_array_absolute.npy"), diff_array)
+    
+    # Save figure
+    if save_fig:
+        fig_path = os.path.join(fig_output_folder, "diff_absolute_zones.png")
+        plt.savefig(fig_path, dpi=300)
+
+    if show_fig:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    return diff_array
+
+def absolute_head_diffusion(transient_heads, steady_state_heads, times,
+                            start_step=0, threshold_absolute=0.01, stability_threshold=0.01,
+                            fig_output_folder=".", save_fig=True, show_fig=False,
+                            bounds="95p"):
+    """
+    Plots overall head differences (transient - steady state) with mean, and either
+    95% interval or mean ± std as shaded bounds. NaN values are ignored in stats
+    and plotting. Can save and/or display the figure.
+
+    Parameters:
+    -----------
+    transient_heads : np.ndarray
+        4D array (n_time, n_layer, n_row, n_col)
+    steady_state_heads : np.ndarray
+        3D array (n_layer, n_row, n_col)
+    times : np.ndarray or list
+        Simulation times corresponding to transient_heads
+    start_step : int
+        Time step index to start analysis (default=0)
+    threshold_absolute : float
+        Value below which cells are considered already steady state (default=0.01)
+    stability_threshold : float
+        Threshold to exclude cells nearly steady at start_step (default=0.01)
+    fig_output_folder : str
+        Folder path to save figure
+    save_fig : bool
+        Whether to save the figure
+    show_fig : bool
+        Whether to display the figure
+    bounds : str, default "95p"
+        Method for shaded bounds: "95p" = 2.5th–97.5th percentiles,
+        "stdev" = mean ± standard deviation
+    """
+
+    # Ensure output folder exists
+    os.makedirs(fig_output_folder, exist_ok=True)
+
+    # Compute differences
+    diff_array = np.abs(transient_heads - steady_state_heads)  # (ntsp, nlay, nrow, ncol)
+
+    # Mask: exclude cells nearly steady at start_step
+    exclude_mask = np.abs(diff_array[start_step]) < stability_threshold
+    diff_array[:, exclude_mask] = np.nan  # apply mask across all timesteps
+
+    # Flatten spatial dimensions
+    diff_flat = diff_array.reshape(diff_array.shape[0], -1)
+    selected_diff = diff_flat[start_step:]
+
+    # X-axis: time since start_step
+    time_since_start = times[start_step:] - times[start_step]
+    time_in_years = time_since_start / 360  # convert to years
+
+    # Compute statistics ignoring NaNs
+    means = np.nanmean(selected_diff, axis=1)
+    #medians = np.nanmedian(selected_diff, axis=1)
+
+    if bounds == "95p":
+        lower = np.nanpercentile(selected_diff, 2.5, axis=1)
+        upper = np.nanpercentile(selected_diff, 97.5, axis=1)
+    elif bounds == "stdev":
+        std = np.nanstd(selected_diff, axis=1)
+        lower = np.maximum(means - std, 0)
+        upper = means + std
+    else:
+        raise ValueError("bounds must be '95p' or 'stdev'")
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(12, 5))
+    #.plot(time_in_years, medians, color="darkblue", linestyle="-", label="Median", linewidth=1.5)
+    ax.plot(time_in_years, means, color="blue", linestyle="--", label="Mean", linewidth=1.5)
+    
+    # Use np.where to replace NaNs with nan-safe arrays for plotting
+    ax.fill_between(time_in_years, np.where(np.isnan(lower), np.nan, lower),
+                    np.where(np.isnan(upper), np.nan, upper),
+                    color="lightblue", alpha=0.3,
+                    label="95% interval" if bounds=="95p" else "Standard Deviation")
+    ax.plot(time_in_years, lower, color="black", linestyle="--", linewidth=1, alpha=0.7)
+    ax.plot(time_in_years, upper, color="black", linestyle="--", linewidth=1, alpha=0.7)
+
+    # Annotate first time mean < threshold_absolute
+    below_threshold_idx = np.where(means < threshold_absolute)[0]
+    if below_threshold_idx.size > 0:
+        idx = below_threshold_idx[0]
+        t_cross = time_in_years[idx]
+        mean_value = means[idx]
+        ax.scatter(t_cross, mean_value, color="green", s=50, zorder=5)
+        ax.axvline(t_cross, color="green", linestyle=":", linewidth=1.5)
+        ax.text(t_cross + 500, ax.get_ylim()[1]*0.9, f"tr={int(round(t_cross))} yr",
+                color="green", rotation=0, va='top', fontweight='bold')
+
+    # Labels
+    ax.set_xlabel("Time since step change (years)")
+    ax.set_ylabel("Head difference (m)")
+    ax.set_title("Absolute head difference: transient - steady state")
+    ax.set_ylim(bottom=0)
+    ax.legend()
+    plt.tight_layout()
+
+    # Save figure
+    if save_fig:
+        fig_path = os.path.join(fig_output_folder, "diff_absolute_total.png")
+        plt.savefig(fig_path, dpi=300)
+
+    # Show figure
+    if show_fig:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    return diff_array
+
+def relative_head_diffusion_zones(transient_heads, steady_state_heads, times, zone_array,
+                                  start_step=0, threshold_percent= 5, stability_threshold=0.01,
+                                  array_output_folder=".", fig_output_folder=".",
+                                  save_fig=True, show_fig=False,
+                                  zone_descriptions=None,
+                                  bounds="95p"):
+    """
+    Plots per-zone relative head differences ((transient - steady)/initial_diff) with mean,
+    median, and either 95% interval or mean ± std as shaded bounds. Annotates the time
+    when mean drops below threshold.
+
+    Parameters:
+    -----------
+    transient_heads : np.ndarray
+        4D array (n_time, n_layer, n_row, n_col)
+    steady_state_heads : np.ndarray
+        3D array (n_layer, n_row, n_col)
+    times : np.ndarray or list
+        Simulation times corresponding to transient_heads
+    zone_array : np.ndarray
+        3D array identifying zones (n_layer, n_row, n_col)
+    start_step : int
+        Time step index to start analysis (default=0)
+    threshold_percent : float
+        Value at which the mean is considered "relaxed" (default=5)
+    stability_threshold : float
+        Threshold to exclude cells nearly steady at start_step (default=0.01)
+    array_output_folder : str
+        Folder path to save diff_array.npy
+    fig_output_folder : str
+        Folder path to save figure
+    save_fig : bool
+        Whether to save the figure
+    show_fig : bool
+        Whether to display the figure
+    zone_descriptions : dict, optional
+        Dictionary mapping zone numbers to descriptive names
+    bounds : str, default "95p"
+        Method for shaded bounds: "95p" = 2.5th–97.5th percentiles,
+        "stdev" = mean ± standard deviation
+    """
+
+    # Ensure output folders exist
+    os.makedirs(array_output_folder, exist_ok=True)
+    os.makedirs(fig_output_folder, exist_ok=True)
+
+    # Compute initial absolute differences at start_step
+    initial_diff = np.abs(transient_heads[start_step] - steady_state_heads)
+
+    # Compute differences at all times
+    diff_array = np.abs(transient_heads - steady_state_heads)
+
+    # Normalize by initial_diff, avoiding division by zero
+    with np.errstate(divide='ignore', invalid='ignore'):
+        relative_diff = np.where(initial_diff > stability_threshold,
+                                 diff_array * 100/ initial_diff,
+                                 np.nan)
+
+    # Unique zones (exclude background if needed)
+    zones = np.unique(zone_array)
+    zones = zones[zones > 0]
+
+    # X-axis: time since start_step
+    time_since_start = times[start_step:] - times[start_step]  # zero at start_step
+    time_in_years = time_since_start / 360  # convert to years
+
+    # Prepare subplots
+    n_zones = len(zones)
+    fig, axes = plt.subplots(n_zones, 1, figsize=(14, 4 * n_zones), sharex=True)
+    if n_zones == 1:
+        axes = [axes]
+
+    for ax, zone in zip(axes, zones):
+        # Mask: zone selection
+        zone_mask = (zone_array == zone)
+
+        # Exclude cells with small initial difference
+        exclude_mask = initial_diff <= stability_threshold 
+        combined_mask = np.logical_or(~zone_mask, exclude_mask)
+
+        # Apply mask
+        diff_zone = np.where(combined_mask, np.nan, relative_diff)
+
+        # Flatten spatial dimensions
+        diff_zone_flat = diff_zone.reshape(diff_zone.shape[0], -1)
+
+        # Select only times after start_step
+        selected_diff_zone = diff_zone_flat[start_step:]
+
+        # Compute stats per timestep
+        means = np.array([np.nanmean(selected_diff_zone[t]) for t in range(selected_diff_zone.shape[0])])
+
+        if bounds == "95p":
+            lower = [np.nanpercentile(selected_diff_zone[t], 2.5) for t in range(selected_diff_zone.shape[0])]
+            upper = [np.nanpercentile(selected_diff_zone[t], 97.5) for t in range(selected_diff_zone.shape[0])]
+        elif bounds == "stdev":
+            lower = [max(means[t] - np.nanstd(selected_diff_zone[t]), 0) for t in range(selected_diff_zone.shape[0])]
+            upper = [min(means[t] + np.nanstd(selected_diff_zone[t]), 100) for t in range(selected_diff_zone.shape[0])]
+        else:
+            raise ValueError("bounds must be '95p' or 'stdev'")
+
+        # Plot lines
+        ax.plot(time_in_years, means, color="blue", linestyle="--", label="Mean", linewidth=1.5)
+        ax.fill_between(time_in_years, lower, upper, color="lightblue", alpha=0.3,
+                        label="95% interval" if bounds=="95p" else "Standard Deviation")
+        ax.plot(time_in_years, lower, color="black", linestyle="--", linewidth=1, alpha=0.7)
+        ax.plot(time_in_years, upper, color="black", linestyle="--", linewidth=1, alpha=0.7)
+
+        # Annotate first time mean < threshold_percent
+        below_threshold_idx = np.where(means < threshold_percent)[0]
+        if below_threshold_idx.size > 0:
+            idx = below_threshold_idx[0]
+            t_cross = time_in_years[idx]
+            mean_value = means[idx]
+            ax.scatter(t_cross, mean_value, color="green", s=50, zorder=5)
+            ax.axvline(t_cross, color="green", linestyle=":", linewidth=1.5)
+            ax.text(t_cross + 0.5, ax.get_ylim()[1]*0.9, f"tr={t_cross:.1f} yr",
+                    color="green", rotation=0, va='top', fontweight='bold')
+
+        # Labels
+        ax.set_ylabel("Relative head difference")
+        if zone_descriptions and zone in zone_descriptions:
+            ax.set_title(f"Zone {zone}: {zone_descriptions[zone]}")
+        else:
+            ax.set_title(f"Zone {zone}")
+
+    axes[-1].set_xlabel("Time since step change (years)")
+    ax.set_ylim(0, 100)
+    axes[0].legend()
+    plt.tight_layout()
+
+    # Save diff_array
+    np.save(os.path.join(array_output_folder, "diff_array_relative.npy"), relative_diff)
+    
+    # Save figure
+    if save_fig:
+        fig_path = os.path.join(fig_output_folder, "diff_relative_zones.png")
+        plt.savefig(fig_path, dpi=300)
+
+    if show_fig:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    return relative_diff
+
+def relative_head_diffusion(transient_heads, steady_state_heads, times,
+                       start_step=0, threshold_percent=5, stability_threshold=0.01,
+                       fig_output_folder=".", save_fig=True, show_fig=False,
+                       bounds="95p"):
+    """
+    Plots residual head differences (transient - steady state) normalized by initial difference.
+    Small initial differences below threshold_value are excluded to avoid division by zero.
+    Can save and/or display the figure.
+
+    Parameters
+    ----------
+    transient_heads : np.ndarray
+        4D array (n_time, n_layer, n_row, n_col)
+    steady_state_heads : np.ndarray
+        3D array (n_layer, n_row, n_col)
+    times : np.ndarray or list
+        Simulation times corresponding to transient_heads
+    start_step : int
+        Time step index to start analysis (default=0)
+    threshold_percent : float
+        Threshold to calculate response time (default=5)
+    stability_threshold : float
+        Percent threshold for stability used to mask initial differences near steady state (default=0.01).
+    fig_output_folder : str
+        Folder path to save figure
+    save_fig : bool
+        Whether to save the figure
+    show_fig : bool
+        Whether to display the figure
+    bounds : str, default "95p"
+        Method for shaded bounds: "95p" = 2.5th–97.5th percentiles,
+        "stdev" = mean ± standard deviation
+    """
+
+    os.makedirs(fig_output_folder, exist_ok=True)
+
+    # Compute initial difference
+    initial_diff = np.abs(transient_heads[start_step] - steady_state_heads)
+    mask = initial_diff > stability_threshold  # boolean mask to avoid division by very small numbers
+
+    # Compute normalized difference (residual)
+    diff_array = np.abs(transient_heads - steady_state_heads)
+    # Mask: exclude cells nearly steady at start_step
+    exclude_mask = np.abs(diff_array[start_step]) < stability_threshold
+    diff_array = np.where(exclude_mask, np.nan, diff_array)
+
+    relative_array = np.zeros_like(diff_array)
+    relative_array[:, mask] = diff_array[:, mask] * 100 / initial_diff[mask]
+
+    # Flatten spatial dimensions
+    relative_flat = relative_array.reshape(relative_array.shape[0], -1)
+    selected_relative = relative_flat[start_step:]
+
+    # X-axis: time since start_step
+    time_since_start = times[start_step:] - times[start_step]
+    time_in_years = time_since_start / 360  # assuming time in days
+
+    # Compute stats per timestep
+    means = np.array([np.nanmean(selected_relative[t]) for t in range(selected_relative.shape[0])])
+    #medians = np.array([np.nanmedian(selected_relative[t]) for t in range(selected_relative.shape[0])])
+
+    if bounds == "95p":
+        lower = [np.nanpercentile(selected_relative[t], 2.5) for t in range(selected_relative.shape[0])]
+        upper = [np.nanpercentile(selected_relative[t], 97.5) for t in range(selected_relative.shape[0])]
+    elif bounds == "stdev":
+        lower = [max(means[t] - np.nanstd(selected_relative[t]), 0) for t in range(selected_relative.shape[0])]
+        upper = [min(means[t] + np.nanstd(selected_relative[t]), 100) for t in range(selected_relative.shape[0])]
+    else:
+        raise ValueError("bounds must be '95p' or 'stdev'")
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(12, 5))
+    #ax.plot(time_in_years, medians, color="darkblue", linestyle="-", label="Median", linewidth=1.5)
+    ax.plot(time_in_years, means, color="blue", linestyle="--", label="Mean", linewidth=1.5)
+    ax.fill_between(time_in_years, lower, upper, color="lightblue", alpha=0.3,
+                    label="95% interval" if bounds=="95p" else "Standard Deviation")
+    ax.plot(time_in_years, lower, color="black", linestyle="--", linewidth=1, alpha=0.7)
+    ax.plot(time_in_years, upper, color="black", linestyle="--", linewidth=1, alpha=0.7)
+
+    # Annotate first time mean < threshold_percent
+    below_threshold_idx = np.where(means < threshold_percent)[0]
+    if below_threshold_idx.size > 0:
+        idx = below_threshold_idx[0]
+        t_cross = time_in_years[idx]
+        mean_value = means[idx]
+        ax.scatter(t_cross, mean_value, color="green", s=50, zorder=5)
+        ax.axvline(t_cross, color="green", linestyle=":", linewidth=1.5)
+        ax.text(t_cross + 100, ax.get_ylim()[1]*0.9, f"tr={t_cross:.1f} yr",
+                color="green", rotation=0, va='top', fontweight='bold')
+
+    # Labels
+    ax.set_xlabel("Time since step change (years)")
+    ax.set_ylabel("Relative head difference (%)")
+    ax.set_title("Relative head difference relative to initial difference")
+    ax.set_ylim(0, 100)
+    ax.legend()
+    plt.tight_layout()
+
+    if save_fig:
+        fig_path = os.path.join(fig_output_folder, "diff_relative_total.png")
+        plt.savefig(fig_path, dpi=300)
+
+    if show_fig:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    return relative_array
+
+def response_time_array_absolute(gwf,
+    steady_state_heads,
+    transient_heads,
+    times_list,
+    threshold_absolute=0.01,
+    stability_threshold=0.01,
+    array_output_folder=None,
+    fig_output_folder=None,
+    save_array=True,
+    save_plot=True,
+    show_plot=False,
+    start_step=30
+):
+    """
+    Compute the absolute response time of transient heads to steady state.
+
+    Parameters
+    ----------
+    gwf : flopy.mf6.ModflowGwf
+        The groundwater flow model object (for plotting purposes)
+    steady_state_heads : ndarray
+        3D array of steady-state heads (nlay, nrow, ncol)
+    transient_heads : ndarray
+        3D array of transient heads (ntime, nlay, nrow, ncol)
+    times_list : array-like
+        Simulation times corresponding to transient_heads
+    threshold_absolute : float
+        Absolute threshold for relaxation
+    stability_threshold : float, optional
+        Threshold to treat zero initial differences as NaN
+    array_output_folder : str, optional
+        Folder to save the response time array as .npy
+    fig_output_folder : str, optional
+        Folder to save the plot
+    save_array : bool, optional
+        Whether to save the response time array
+    save_plot : bool, optional
+        Whether to save the plot
+    show_plot : bool, optional
+        Whether to display the plot
+    start_step : int, optional
+        Step to start computing response time
+
+    Returns
+    -------
+    response_time_array : ndarray
+        Array of response times in same shape as steady_state_heads
+    """
+
+    end_step = transient_heads.shape[0] - 1
+    times = np.array(times_list)
+
+    # ------------------------------ Compute absolute response time ----------------------------------- #
+    nlay, nrow, ncol = steady_state_heads.shape
+
+    # Precompute initial difference to detect zeros
+    initial_diff = np.abs(transient_heads[start_step] - steady_state_heads)
+    zero_diff_mask = initial_diff <= stability_threshold
+    initial_diff = initial_diff.astype(float)
+    initial_diff[zero_diff_mask] = np.nan
+
+    # Initialize response time array with end_time as default
+    response_time_array = np.full((nlay, nrow, ncol), times[end_step])
+
+    # Boolean array to track assigned cells
+    assigned = np.zeros((nlay, nrow, ncol), dtype=bool)
+
+    # Loop through transient times and compute absolute relaxation
+    for t in range(start_step, end_step):
+        relaxation = np.abs(transient_heads[t] - steady_state_heads)
+        mask = (relaxation <= threshold_absolute) & (~assigned)
+        response_time_array[mask] = times[t]
+        assigned[mask] = True
+
+    # Set response time to start time where initial difference was zero
+    response_time_array[np.isnan(initial_diff)] = times[start_step]
+
+    # Save response time array if requested
+    if save_array and array_output_folder:
+        np.save(f"{array_output_folder}/response_time_absolute.npy", response_time_array)
 
     # Plotting
-    fig, ax = plt.subplots(figsize=figsize)
-    if time_units == 'years':
-        time_data = time_data / 360  # Convert days to years
-        time_axis_label = "Time [years]"
+    fig = plt.figure(figsize=(19, 5))
+    ax = fig.add_subplot(1, 1, 1)
+
+    # Use middle row for cross-section
+    mx = flopy.plot.PlotCrossSection(ax=ax, model=gwf, line={"row": nrow // 2})
+    pa = mx.plot_array((response_time_array - times[start_step]) / 360, alpha=1, cmap="viridis", vmin=0)
+    mx.plot_grid(color="0.5", alpha=0.2)
+    cb = plt.colorbar(pa, ax=ax)
+    cb.set_label("Response time (years)")
+    ax.set_title(f"Response Time to Absolute Threshold {threshold_absolute}")
+    plt.tight_layout()
+
+    if save_plot and fig_output_folder:
+        fig.savefig(f"{fig_output_folder}/Response_time_absolute.png", dpi=300)
+
+    if show_plot:
+        plt.show()
     else:
-        time_data = time_data  # Keep in days
-        time_axis_label = "Time [days]"
-
-    ax.plot(time_data, storage_change_rate, label="STORAGE CHANGE RATE", color="green")
-
-    if stable_idx is not None:
-        ax.axvline(time_data.iloc[stable_idx], color="green", linestyle='dotted')
-        ax.text(time_data.iloc[stable_idx], storage_change_rate.iloc[stable_idx] + 0.2,
-                f'Near equilibrium at t={round(time_data.iloc[stable_idx], 1)} days',
-                fontsize=fontsize / 1.2, color="green")
-
-    ax.set_title("Storage change rate", fontsize=fontsize)
-    ax.set_xlabel(time_axis_label, fontsize=fontsize / 1.2)
-    ax.set_ylabel("m³/day", fontsize=fontsize / 1.2)
-    ax.legend(fontsize=fontsize / 1.2)
-    ax.grid()
-
-    if xlim:
-        ax.set_xlim(xlim)
-    if ylim:
-        ax.set_ylim(ylim)
-
-    plt.tight_layout()
-
-    if show:
-        plt.show()
-
-    if save:
-        output_dir = os.path.dirname(output_path)
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        fig.savefig(output_path, dpi=300)
         plt.close(fig)
 
-def plot_storage_change_with_stabilization(file_path, 
-                                           output_path, 
-                                           show=False, 
-                                           save=False, 
-                                           figsize=(14, 12), 
-                                           fontsize=14, 
-                                           tstart=0,  # Time after which the stabilization analysis starts
-                                           epsilon=None,  # Threshold for stabilization or None to skip
-                                           xlim=None,
-                                           ylim=None):
+    return response_time_array
+
+def response_time_array_relative(gwf,
+    steady_state_heads,
+    transient_heads,
+    times_list,
+    threshold_percent=5,
+    stability_threshold=0.01,
+    array_output_folder=None,
+    fig_output_folder=None,
+    save_array=True,
+    save_plot=True,
+    show_plot=False,
+    start_step=30
+):
     """
-    Creates a time series plot for change in storage (cumulative) and marks the time step where the curve stabilizes.
+    Compute the relative response time of transient heads to steady state.
 
-    Args:
-        file_path (str): Path to the budget CSV file. The file should have a column called 'time' and 
-                         columns for storage components.
-        output_path (str): Path to save the plot if save is True.
-        show (bool): Whether to display the plot. Defaults to False.
-        save (bool): Whether to save the plot. Defaults to False.
-        figsize (tuple): Size of the figure. Defaults to (14, 12).
-        fontsize (int): Font size for plot labels and titles.
-        tstart (int or float): The time step after which the stabilization analysis starts.
-        epsilon (float or None): Stabilization threshold (e.g., 0.01), or None to skip analysis.
-        xlim (tuple or None): x-axis limits (min, max).
-        ylim (tuple or None): y-axis limits (min, max).
+    Parameters
+    ----------
+    gwf : flopy.mf6.ModflowGwf
+        The groundwater flow model object (for plotting purposes)
+    steady_state_heads : ndarray
+        3D array of steady-state heads (nlay, nrow, ncol)
+    transient_heads : ndarray
+        3D array of transient heads (ntime, nlay, nrow, ncol)
+    times_list : array-like
+        Simulation times corresponding to transient_heads
+    threshold_percent : float
+        Percent threshold for relaxation
+    stability_threshold : float, optional
+        Threshold to treat zero initial differences as NaN
+    array_output_folder : str, optional
+        Folder to save the response time array as .npy
+    fig_output_folder : str, optional
+        Folder to save the plot
+    save_array : bool, optional
+        Whether to save the response time array
+    save_plot : bool, optional
+        Whether to save the plot
+    show_plot : bool, optional
+        Whether to display the plot
+    start_step : int, optional
+        Step to start computing response time
 
-    Outputs:
-        A figure with the cumulative change in storage time series, with a marker for the stabilization point if applicable.
+    Returns
+    -------
+    response_time_array : ndarray
+        Array of response times in same shape as steady_state_heads
     """
 
-    # Load the CSV file
-    data = pd.read_csv(file_path)
+    end_step = transient_heads.shape[0] - 1
+    times = np.array(times_list)
 
-    # Identify columns for storage components
-    columns_storage_in = [col for col in data.columns if "STO" in col and "IN" in col]
-    columns_storage_out = [col for col in data.columns if "STO" in col and "OUT" in col]
+    # ------------------------------ Compute relative response time ----------------------------------- #
+    nlay, nrow, ncol = steady_state_heads.shape
 
-    # Prepare data for time series
-    time_data = data["time"]
+    # Precompute initial difference (denominator)
+    initial_diff = np.abs(transient_heads[start_step] - steady_state_heads)
 
-    # Compute the storage change rate (STORAGE OUT - STORAGE IN)
-    storage_in = data[columns_storage_in].sum(axis=1)
-    storage_out = data[columns_storage_out].sum(axis=1)
-    storage_change_rate = storage_out - storage_in
+    # Mask for zero initial differences
+    zero_diff_mask = initial_diff <= stability_threshold
+    initial_diff = initial_diff.astype(float)
+    initial_diff[zero_diff_mask] = np.nan
 
-    # Compute the cumulative storage change
-    storage_change = np.cumsum(storage_change_rate)
+    # Initialize response time array with end_time as default
+    response_time_array = np.full((nlay, nrow, ncol), times[end_step])
 
-    # Optional: stabilization analysis
-    stable_idx = None
-    if epsilon is not None:
-        stabilization_index = np.zeros_like(storage_change, dtype=float)
-        stabilization_index[:tstart+1] = 100  # Arbitrary high value before tstart
+    # Boolean array to track assigned cells
+    assigned = np.zeros((nlay, nrow, ncol), dtype=bool)
 
-        for i in range(tstart+1, len(storage_change)):
-            delta_flux = storage_change[i] - storage_change[i - 1]
-            delta_time = time_data.iloc[i] - time_data.iloc[i - 1]
-            stabilization_index[i] = np.abs(delta_flux) * 100 / delta_time
+    # Loop through transient times and compute relaxation
+    for t in range(start_step, end_step):
+        relaxation = np.abs(transient_heads[t] - steady_state_heads) * 100.0 / initial_diff
+        mask = (relaxation <= threshold_percent) & (~assigned)
+        response_time_array[mask] = times[t]
+        assigned[mask] = True
 
-        stable_indices = np.where(stabilization_index <= epsilon)[0]
-        if len(stable_indices) > 0:
-            stable_idx = stable_indices[0]
+    # Set response time to start time where initial difference was zero
+    response_time_array[np.isnan(initial_diff)] = times[start_step]
 
-    # Plot cumulative storage change
-    fig, ax = plt.subplots(figsize=figsize)
-    ax.plot(time_data, storage_change, label="CUMULATIVE STORAGE CHANGE", color="green")
+    # Save response time array if requested
+    if save_array and array_output_folder:
+        np.save(f"{array_output_folder}/response_time_relative.npy", response_time_array)
 
-    if stable_idx is not None:
-        ax.axvline(time_data.iloc[stable_idx], color="green", linestyle='dotted')  # Vertical line at stabilization
-        ax.text(time_data.iloc[stable_idx], storage_change[stable_idx] + 0.2,
-                f'Near equilibrium at t={round(time_data.iloc[stable_idx], 1)} days',
-                fontsize=fontsize / 1.2, color="green")
+    # Plotting
+    fig = plt.figure(figsize=(19, 5))
+    ax = fig.add_subplot(1, 1, 1)
 
-    ax.set_title("Cumulative Change in Storage", fontsize=fontsize)
-    ax.set_xlabel("Time [days]", fontsize=fontsize / 1.2)
-    ax.set_ylabel("m³", fontsize=fontsize / 1.2)
-    ax.legend(fontsize=fontsize / 1.2)
-    ax.grid()
-
-    if xlim:
-        ax.set_xlim(xlim)
-    if ylim:
-        ax.set_ylim(ylim)
-
+    # Use middle row for cross-section
+    mx = flopy.plot.PlotCrossSection(ax=ax, model=gwf, line={"row": nrow // 2})
+    pa = mx.plot_array((response_time_array - times[start_step]) / 360, alpha=1, cmap="viridis", vmin=0)
+    mx.plot_grid(color="0.5", alpha=0.2)
+    cb = plt.colorbar(pa, ax=ax)
+    cb.set_label("Response time (years)")
+    ax.set_title(f"Response Time to {threshold_percent}% Relaxation")
     plt.tight_layout()
 
-    if show:
+    if save_plot and fig_output_folder:
+        fig.savefig(f"{fig_output_folder}/Response_time_relative.png", dpi=300)
+
+    if show_plot:
         plt.show()
-
-    if save:
-        output_dir = os.path.dirname(output_path)
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        fig.savefig(output_path, dpi=300)
-        plt.close(fig)
-
-def fit_time_series(csv_path, columns, tau_guess, tstart=0, output_path=None, show=False, save=False, fig_size=(14, 12)):
-
-    # Load CSV
-    df = pd.read_csv(csv_path)
-
-    # Define the model function
-    def model(t, h0, h1, tau):
-        return h1 - (h1 - h0) * np.exp(-t / tau)
-
-    # Extract time values
-    t_data = df['time'].values
-
-    # Filter the data based on tstart
-    valid_indices = t_data >= tstart
-    t_data = t_data[valid_indices]
-
-    # Store results for each column
-    fit_results = {}
-
-    # Iterate over each column in the list
-    for col in columns:
-        h_data = df[col].values[valid_indices]
-
-        # Dynamic initial guesses
-        h0_guess = h_data[0]
-        h1_guess = h_data[-1]
-
-        # Perform nonlinear regression
-        initial_guesses = [h0_guess, h1_guess, tau_guess]
-        popt, _ = curve_fit(model, t_data, h_data, p0=initial_guesses)
-
-        # Extract fitted parameters
-        h0_fit, h1_fit, tau_fit = popt
-
-        # Calculate 3*tau and 5*tau for equilibrium points
-        t_95_eq = 3 * tau_fit  # Approximate time for 95% equilibrium
-        t_99_eq = 5 * tau_fit  # Approximate time for 99% equilibrium
-
-        # Calculate R²
-        h_data_fit = model(t_data, *popt)
-        r2 = r2_score(h_data, h_data_fit)
-
-        # Create the plot
-        plt.figure(figsize=fig_size)
-        plt.scatter(t_data, h_data, label=f'Observed Data ({col})', color='blue', s=10)
-        plt.plot(t_data, h_data_fit, label=f'Fitted Curve (R² = {r2:.3f})', color='red', linewidth=2)
-        plt.axvline(x=t_95_eq, color='green', linestyle='--', label=f'95% Equilibrium (3τ = {t_95_eq:.2f} days)')
-        plt.axvline(x=t_99_eq, color='purple', linestyle='--', label=f'99% Equilibrium (5τ = {t_99_eq:.2f} days)')
-        plt.xlabel('Time')
-        plt.ylabel(col)
-        plt.title(f'Nonlinear Fit for {col}\nh_0={h0_fit:.2f}, h_1={h1_fit:.2f}, τ={tau_fit:.2f}')
-        plt.legend()
-
-        # Save the plot if required
-        if save:
-            if output_path is None:
-                raise ValueError("output_path must be specified if save=True")
-            if not os.path.exists(output_path):
-                os.makedirs(output_path)
-            plot_file = os.path.join(output_path, f'{col}_fit_plot.png')
-            plt.savefig(plot_file, bbox_inches='tight', dpi=300)
-            print(f"Plot saved for {col} at: {plot_file}")
-
-        # Show the plot if required
-        if show:
-            plt.show()
-        else:
-            plt.close()
-
-        # Print the parameters for reference
-        print(f"{col} - Fitted parameters:\n h0 = {h0_fit:.2f}, h1 = {h1_fit:.2f}, τ = {tau_fit:.2f}, R² = {r2:.3f}\n")
-
-        # Store the fitted parameters for this column
-        fit_results[col] = {'h0': h0_fit, 'h1': h1_fit, 'tau': tau_fit, 'r2': r2}
-
-    # Return the results for all columns
-    return fit_results
-          
-def fit_time_series2(csv_path, columns, tau_guess, tstart=0, output_path=None, show=False, save=False, fig_size=(14, 12)):
-
-    # Load CSV
-    df = pd.read_csv(csv_path)
-
-    # Define the model function, only fitting tau
-    def model(t, tau, h0, h1):
-        return h1 - (h1 - h0) * np.exp(-t / tau)
-
-    # Extract time values
-    t_data = df['time'].values
-
-    # Filter the data based on tstart
-    valid_indices = t_data >= tstart
-    t_data = t_data[valid_indices]
-
-    # Store results for each column
-    tau_results = {}
-
-    # Iterate over each column in the list
-    for col in columns:
-        h_data = df[col].values[valid_indices]
-
-        # Extract h1 as the last element of the time series and h0 as the value at tstart+1
-        h1 = h_data[-1]
-        h0 = h_data[np.argmax(t_data >= tstart)]  # Get the value at tstart + 1
-
-        # Perform nonlinear regression to fit only tau
-        initial_guesses = [tau_guess]
-        popt, _ = curve_fit(lambda t, tau: model(t, tau, h0, h1), t_data, h_data, p0=initial_guesses)
-
-        # Extract fitted tau
-        tau_fit = popt[0]
-
-        # Calculate 3*tau and 5*tau for equilibrium points
-        t_95_eq = 3 * tau_fit  # Approximate time for 95% equilibrium
-        t_99_eq = 5 * tau_fit  # Approximate time for 99% equilibrium
-
-        # Calculate R²
-        h_data_fit = model(t_data, tau_fit, h0, h1)
-        r2 = r2_score(h_data, h_data_fit)
-
-        # Create the plot
-        plt.figure(figsize=fig_size)
-        plt.scatter(t_data, h_data, label=f'Observed Data ({col})', color='blue', s=10)
-        plt.plot(t_data, h_data_fit, label=f'Fitted Curve (R² = {r2:.3f})', color='red', linewidth=2)
-        plt.axvline(x=t_95_eq, color='green', linestyle='--', label=f'95% Equilibrium (3τ = {t_95_eq:.2f} days)')
-        plt.axvline(x=t_99_eq, color='purple', linestyle='--', label=f'99% Equilibrium (5τ = {t_99_eq:.2f} days)')
-        plt.xlabel('Time')
-        plt.ylabel(col)
-        plt.title(f'Nonlinear Fit for {col}\nh_0={h0:.2f}, h_1={h1:.2f}, τ={tau_fit:.2f}')
-        plt.legend()
-
-        # Save the plot if required
-        if save:
-            if output_path is None:
-                raise ValueError("output_path must be specified if save=True")
-            if not os.path.exists(output_path):
-                os.makedirs(output_path)
-            plot_file = os.path.join(output_path, f'{col}_fit_plot.png')
-            plt.savefig(plot_file, bbox_inches='tight', dpi=300)
-            print(f"Plot saved for {col} at: {plot_file}")
-
-        # Show the plot if required
-        if show:
-            plt.show()
-        else:
-            plt.close()
-
-        # Print the parameters for reference
-        print(f"{col} - Fitted parameters:\n h0 = {h0:.2f}, h1 = {h1:.2f}, τ = {tau_fit:.2f}, R² = {r2:.3f}\n")
-
-        # Store the fitted tau value for this column
-        tau_results[col] = tau_fit
-
-    # Return the results for all columns
-    return tau_results       
-
-def plot_net_flow_time_series_with_equilibrium_markers(
-        file_path,
-        output_path,
-        show=False,
-        save=False,
-        figsize=(14, 12),
-        fontsize=16,
-        tstart=0,  # Time after which the stabilization analysis starts
-        equilibrium_percentage=99,  # Percentage for equilibrium threshold
-        tau=1,  # Time interval for delta computation
-        boundary_keywords=None):  # Filter columns by keywords
-    """
-    Creates time series plots for the difference between inflow and outflow components,
-    and marks the time step where the stabilization criteria is met.
-
-    Args:
-        file_path (str): Path to the budget CSV file. The file should have a column called 'time' and 
-                         columns ending in _IN, _OUT.
-        output_path (str): Path to save the plot if save is True.
-        show (bool): Whether to display the plot. Defaults to False.
-        save (bool): Whether to save the plot. Defaults to False.
-        figsize (tuple): Size of the figure. Defaults to (14, 12).
-        fontsize (int): Font size for plot labels and titles.
-        tstart (int or float): The time step index after which the stabilization analysis starts.
-        equilibrium_percentage (float): Equilibrium percentage threshold (e.g., 99%).
-        tau (int or float): Time interval for computing delta stabilization criteria.
-        boundary_keywords (list of str or None): List of keywords to filter columns to be analyzed. If None, the analysis is performed on all curves.
-    """
-
-    # Load the CSV file
-    data = pd.read_csv(file_path)
-
-    # Identify matching inflow and outflow columns
-    columns_in = [col for col in data.columns if col.endswith("_IN") and "STO" not in col and col != "TOTAL_IN"]
-    columns_out = [col.replace("_IN", "_OUT") for col in columns_in if col.replace("_IN", "_OUT") in data.columns]
-
-    # Prepare time data
-    time_data = data["time"]
-
-    # Create a figure
-    fig, ax1 = plt.subplots(figsize=figsize)
-
-    # Plot net flux for each component
-    legend_labels = []
-    lines = []  # To store the line objects for later use in vertical line and annotation
-    for col_in, col_out in zip(columns_in, columns_out):
-        net_flux = data[col_in] - data[col_out]
-        label = simplify_name(col_in)
-        line, = ax1.plot(time_data, net_flux, label=label)
-        legend_labels.append(label)
-        lines.append(line)  # Store the line object for later use
-
-    # Perform stabilization analysis for components matching the boundary_keywords
-    if boundary_keywords is None:
-        # If boundary_keywords is None, analyze all components
-        components_to_analyze = zip(columns_in, columns_out, lines)
     else:
-        # If boundary_keywords is provided, only analyze those components that match the keywords
-        components_to_analyze = [(col_in, col_out, line) for col_in, col_out, line in zip(columns_in, columns_out, lines)
-                                 if any(keyword in col_in for keyword in boundary_keywords)]
-
-    for col_in, col_out, line in components_to_analyze:
-        net_flux = data[col_in] - data[col_out]
-
-        # Compute stabilization index
-        stabilization_index = np.zeros_like(net_flux, dtype=float)
-        
-        # Set initial values for stabilization analysis
-        h0 = net_flux.iloc[tstart + 1]  # Initial head value at tstart + 1
-        h1 = net_flux.iloc[-1]  # Final head value
-        #delta = (100 - equilibrium_percentage) * abs((h1 - h0)) / tau
-        delta = h0 + (equilibrium_percentage*(h1 - h0)/100)
-
-        # Before and at tstart, set stabilization index to 100 (no effect on analysis)
-        #stabilization_index[:tstart + 1] = 100  # Or any standard value you want
-        
-        # Compute slope percent for tstart and after
-        for i in range(0, len(net_flux)):
-            #delta_flux = net_flux[i] - net_flux[i - 1]
-            #delta_time = time_data.iloc[i] - time_data.iloc[i - 1]
-            #stabilization_index[i] = np.abs(delta_flux) * 100 / delta_time
-            stabilization_index[i] = net_flux[i]
-
-        # Find the first time step where the stabilization index is less than delta
-        if h1 <= h0 :
-            stable_idx = np.where(stabilization_index <= delta)[0]
-        else:
-            stable_idx = np.where(stabilization_index >= delta)[0]
-
-        if len(stable_idx) > 0:
-            stable_idx = stable_idx[0]
-            ax1.axvline(time_data.iloc[stable_idx], color=line.get_color(), linestyle='dotted')  # Vertical line in the same color as the curve
-            # Annotate the plot with the same color as the curve, rounding to one decimal place
-            ax1.text(time_data.iloc[stable_idx], net_flux.iloc[stable_idx] + 0.2,
-                     f'Stable at t={round(time_data.iloc[stable_idx], 1)} days',
-                     fontsize=fontsize / 1.2, color=line.get_color())
-
-    # Sort legend labels alphabetically
-    handles, labels = ax1.get_legend_handles_labels()
-    sorted_handles_labels = sorted(zip(handles, labels), key=lambda x: x[1])
-    handles, labels = zip(*sorted_handles_labels)
-    ax1.legend(handles, labels, fontsize=fontsize / 1.2)
-
-    # Horizontal line at zero for the X-axis
-    ax1.axhline(0, color='black', linewidth=0.8, linestyle='--')
-
-    ax1.set_title("Net Flow (Inflow - Outflow) Components", fontsize=fontsize)
-    ax1.set_xlabel("Time [days]", fontsize=fontsize / 1.2)
-    ax1.set_ylabel("Net Flow [m³/day]", fontsize=fontsize / 1.2)
-    ax1.grid()
-
-    # Adjust layout and show plot
-    plt.tight_layout()
-
-    if show:
-        plt.show()
-
-    # Save plot
-    if save:
-        output_dir = os.path.dirname(output_path)
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-
-        fig.savefig(output_path, dpi=300)
         plt.close(fig)
 
-def plot_head_time_series_with_equilibrium_markers(
-        head_file_path, 
-        gwf, 
-        output_path, 
-        show=False, 
-        save=False,
-        figsize=(14, 12), 
-        fontsize=14, 
-        tstart=0,  # Time after which the stabilization analysis starts
-        equilibrium_percentage=99,  # Percentage for equilibrium threshold
-        tau=1):  # Time interval for delta computation
-    """
-    Plots the head time series from MODFLOW output, performs stabilization analysis based on delta criteria,
-    and generates the plot.
-    
-    Args:
-        head_file_path (str): Path to the head observation CSV file.
-        gwf (flopy.modflow.ModflowGwf): Flopy groundwater flow model object.
-        tstart (int or float): The time step after which the stabilization analysis starts.
-        equilibrium_percentage (float): Equilibrium percentage threshold (e.g., 99%).
-        tau (int or float): Time interval for computing delta stabilization criteria.
-    
-    Outputs:
-        A plot showing the head values over time with stabilization markers.
-    """
-    # Retrieve head observation data using Flopy
-    csv = gwf.head_obs.output.obs(f=head_file_path).get_data()
-    
-    fig = plt.figure(figsize=figsize)
-
-    # Plot head values over time and perform stabilization analysis
-    for name in csv.dtype.names[1:]:  # Skip the first column (totim) as it's time
-        head_values = csv[name]
-        
-        # Plot the head time series
-        plt.plot(csv["totim"], head_values, label=name)
-        
-        # Compute stabilization index
-        stabilization_index = np.zeros_like(head_values, dtype=float)
-        
-        # Set initial values for stabilization analysis
-        h0 = head_values[tstart + 1]  # Initial head value at tstart + 1
-        h1 = head_values[-1]  # Final head value
-        #delta = (100 - equilibrium_percentage) * abs((h1 - h0)) / tau
-        delta = h0 + (equilibrium_percentage*(h1 - h0)/100)
-
-        # Before and at tstart, set stabilization index to 100 (no effect on analysis)
-        #stabilization_index[:tstart + 1] = 100  # Or any standard value you want
-        
-        # Compute slope percent for tstart and after
-        for i in range(0, len(head_values)):
-            #delta_head = head_values[i] - head_values[i - 1]
-            #delta_time = csv["totim"][i] - csv["totim"][i - 1]
-            #stabilization_index[i] = np.abs(delta_head) * 100 / delta_time
-            stabilization_index[i] = head_values[i]
-
-        # Find the first time step where the stabilization index is less than delta
-        if h1 <= h0 :
-            stable_idx = np.where(stabilization_index <= delta)[0]
-        else:
-            stable_idx = np.where(stabilization_index >= delta)[0]
-
-        if len(stable_idx) > 0:
-            stable_idx = stable_idx[0]
-            plt.axvline(csv["totim"][stable_idx], color=plt.gca().lines[-1].get_color(), linestyle='dotted')  # Vertical line in the same color as the curve
-            # Annotate the plot with the same color as the curve, rounding to one decimal place
-            plt.text(csv["totim"][stable_idx], head_values[stable_idx] + 0.2,
-                     f'Stable at t={round(csv["totim"][stable_idx], 1)} days',
-                     fontsize=fontsize / 1.2, color=plt.gca().lines[-1].get_color())
-
-    plt.xlabel('Time [days]', fontsize=fontsize / 1.2)
-    plt.ylabel('Head [m]', fontsize=fontsize / 1.2)
-    plt.title('HEAD TIME SERIES', fontsize=fontsize)
-    plt.legend(fontsize=fontsize / 1.2)
-    plt.grid(True)
-
-    # Adjust layout and show plot
-    plt.tight_layout(rect=[0, 0, 1, 0.96])  
-
-    if show:
-        plt.tight_layout()
-        plt.show()
-
-    # Save plot
-    if save:
-        output_dir = os.path.dirname(output_path)
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        
-        fig.savefig(output_path, dpi=300)
-        plt.close(fig)
-
+    return response_time_array

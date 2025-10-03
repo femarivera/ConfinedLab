@@ -123,8 +123,8 @@ base_thicknesses = geom_df["base_thicknesses"].to_numpy() # Layer thickness in m
 outcrop_cells = geom_df["outcrop_cells"].to_numpy() # Cell ID where the unit starts outcropping (measured from left to right)
 
 # Create idomain, irch and recharge arrays
-epsilon = 0 # Minimum allowed cell thickness in meters
-transition = 70 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
+epsilon = float(geom_df["epsilon"].iloc[0]) # Minimum allowed cell thickness in meters
+transition = int(geom_df["transition_cells"].iloc[0]) # Transitions cells
 idomain = modgeom6.compute_idomain(nlay, nrow, ncol, outcrop_cells)
 ztop = modgeom6.compute_top(idomain, outcrop_z, transition=True, slope=True,
                             transition_cells=transition, transition_type="contain", 
@@ -278,29 +278,28 @@ oc = flopy.mf6.ModflowGwfoc(
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
 #River package
-# riv_cells = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones = [1,2,3,4,5])
-# #riv_cells = riv_cells[:-1] # leave the last cell
-# riv_spd1 = modbound6.create_riv_spd(
-#     riv_cells,
-#     ztop_array,
-#     thickness_array,
-#     drn_cond,
-#     drow,
-#     river_width=1,
-#     riverbed_thickness=1,
-#     stage_type="absolute",
-#     a=0,
-#     b=0.1,
-#     conc=None)
-# riv1 = flopy.mf6.ModflowGwfriv(gwf, 
-#                               pname = "riv",
-#                               save_flows = True,
-#                               stress_period_data = riv_spd1,
-#                               filename = f"{model_name}.riv")
+riv_cells = modbound6.active_cells_from_line("gis/grid_topview.shp", "gis/river.shp")
+riv_spd1 = modbound6.create_riv_spd(
+    riv_cells,
+    ztop_array,
+    thickness_array,
+    10*drn_cond,
+    drow,
+    river_width=1,
+    riverbed_thickness=1,
+    stage_type="absolute",
+    a=0,
+    b=1,
+    conc=None)
+riv1 = flopy.mf6.ModflowGwfriv(gwf, 
+                              pname = "riv",
+                              save_flows = True,
+                              stress_period_data = riv_spd1,
+                              filename = f"{model_name}.riv")
 
 # Drain package
 drn_cells1 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones = [1,2,3,4,5])
-drn_cells = drn_cells1 
+drn_cells = [t for t in drn_cells1 if t not in riv_cells] 
 drn_spd = modbound6.create_drn_spd(
     drn_cells,
     ztop_array,
@@ -355,7 +354,7 @@ wel = flopy.mf6.ModflowGwfwel(gwf,
 ghb_1 = ztop_array[0,0,ncol-1] # Head in the GHB
 ghb_spd1 = {}
 ghb_spd1[0] = [
-    ((ilay, 0, ncol-1), ghb_1, 100 * kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
+    ((ilay, 0, ncol-1), ghb_1, kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
     for ilay in range(nlay)]
 
 # GHB in the top of first layer

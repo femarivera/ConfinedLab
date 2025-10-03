@@ -21,6 +21,8 @@
 #  - Utilities for extracting active cell indices from irch/idomain arrays, with options for subsetting and sampling.
 
 import numpy as np
+import geopandas as gpd
+from shapely.geometry import Polygon
 
 def create_riv_spd(
     cells,
@@ -553,7 +555,8 @@ def create_icelltype(cutoff, nlay, nrow, ncol, side="left"):
 def linear_gradient_array(h1, h2, nlay, nrow, ncol):
     """
     Create a 3D array with values linearly varying from h1 (first column)
-    to h2 (last column), constant across layers and rows.
+    to h2 (last column), constant across layers and rows. Useful for stablishing
+    synthetic intial conditions for a 2 cross-sectional model.
 
     Parameters
     ----------
@@ -577,3 +580,66 @@ def linear_gradient_array(h1, h2, nlay, nrow, ncol):
     arr = np.tile(col_values, (nlay, nrow, 1))
 
     return arr
+
+def export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp="grid_topview.shp", crs="EPSG:4326"):
+    """
+    Export a top-view of a structured grid as a polygon shapefile with specified CRS.
+    """
+    # ensure arrays
+    drow = np.atleast_1d(drow)
+    dcol = np.atleast_1d(dcol)
+
+    if drow.size == 1:
+        drow = np.repeat(drow, nrow)
+    if dcol.size == 1:
+        dcol = np.repeat(dcol, ncol)
+
+    # build coordinate edges
+    x_edges = np.concatenate([[0], np.cumsum(dcol)])
+    y_edges = np.concatenate([[0], np.cumsum(drow)])
+
+    cells = []
+    for i in range(nrow):
+        for j in range(ncol):
+            k = irch[i, j]
+            if k < 0:  # skip inactive cells
+                continue
+            x0, x1 = x_edges[j], x_edges[j+1]
+            y0, y1 = y_edges[i], y_edges[i+1]
+            poly = Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
+            cells.append({
+                "geometry": poly,
+                "row": i,
+                "col": j,
+                "irch": int(k)
+            })
+
+    # assign EPSG:4326 CRS
+    gdf = gpd.GeoDataFrame(cells, crs=crs)
+    gdf.to_file(out_shp)
+    print(f"Exported top-view grid to {out_shp} with CRS EPSG:4326")
+
+def active_cells_from_line(grid_shp, river_shp):
+    
+    """
+    Extracts a list of tupples with the active cells being intercepted by a line feature.
+
+    grid_shp: Path to the grid shapefile created with modbound6.export_grid_topview
+    river_shp: path to the river shapefile drawn over the grid. Must be created with the same crs.
+
+    cell_ids: list of tupples with intercepted cell ids. 
+    """
+    # Load both
+    grid = gpd.read_file(grid_shp)
+    river = gpd.read_file(river_shp)
+
+    # Ensure CRS match
+    if grid.crs != river.crs:
+        river = river.to_crs(grid.crs)
+
+    # Spatial join: find polygons (cells) that intersect the river line
+    inter = gpd.sjoin(grid, river, how="inner", predicate="intersects")
+
+    # Extract cell ids (k,i,j)
+    cell_ids = [(int(row.irch), int(row.row), int(row.col)) for idx, row in inter.iterrows()]
+    return cell_ids

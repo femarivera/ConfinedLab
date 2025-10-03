@@ -61,7 +61,7 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
 
-boundary_keywords = ["GHB", "WEL", "RIV"] #List of boundaries used in the model for plotting
+boundary_keywords = ["GHB", "WEL", "DRN"] #List of boundaries used in the model for plotting
 heterogeneity = False # If True, generates random hydraulic conductivity fields
 
 STEADY = True # Runs the steady state model
@@ -278,45 +278,45 @@ oc = flopy.mf6.ModflowGwfoc(
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
 #River package
-riv_cells = modbound6.extract_active_cells_zone(irch, idomain, zone_array, nrow//2, nrow//2, 0, ncol-2, zones = [1,2,3,4,5])
-#riv_cells = riv_cells[:-1] # leave the last cell
-riv_spd1 = modbound6.create_riv_spd(
-    riv_cells,
-    ztop_array,
-    thickness_array,
-    drn_cond,
-    drow,
-    river_width=1,
-    riverbed_thickness=1,
-    stage_type="absolute",
-    a=0,
-    b=0.1,
-    conc=None)
-riv1 = flopy.mf6.ModflowGwfriv(gwf, 
-                              pname = "riv",
-                              save_flows = True,
-                              stress_period_data = riv_spd1,
-                              filename = f"{model_name}.riv")
-
-# Drain package
-# drn_cells1 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, nrow//2, nrow//2, 0, ncol-2, zones = [1,2,3,4,5])
-# drn_cells = drn_cells1 
-# drn_spd = modbound6.create_drn_spd(
-#     drn_cells,
+# riv_cells = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones = [1,2,3,4,5])
+# #riv_cells = riv_cells[:-1] # leave the last cell
+# riv_spd1 = modbound6.create_riv_spd(
+#     riv_cells,
 #     ztop_array,
 #     thickness_array,
 #     drn_cond,
 #     drow,
-#     drain_width=1,
-#     drainbed_thickness=1,
-#     elev_type="absolute",
+#     river_width=1,
+#     riverbed_thickness=1,
+#     stage_type="absolute",
 #     a=0,
+#     b=0.1,
 #     conc=None)
-# drn = flopy.mf6.ModflowGwfdrn(gwf, 
-#                               pname = "drn",
+# riv1 = flopy.mf6.ModflowGwfriv(gwf, 
+#                               pname = "riv",
 #                               save_flows = True,
-#                               stress_period_data = drn_spd,
-#                               filename = f"{model_name}.drn")
+#                               stress_period_data = riv_spd1,
+#                               filename = f"{model_name}.riv")
+
+# Drain package
+drn_cells1 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones = [1,2,3,4,5])
+drn_cells = drn_cells1 
+drn_spd = modbound6.create_drn_spd(
+    drn_cells,
+    ztop_array,
+    thickness_array,
+    drn_cond,
+    drow,
+    drain_width=1,
+    drainbed_thickness=1,
+    elev_type="absolute",
+    a=0,
+    conc=None)
+drn = flopy.mf6.ModflowGwfdrn(gwf, 
+                              pname = "drn",
+                              save_flows = True,
+                              stress_period_data = drn_spd,
+                              filename = f"{model_name}.drn")
 
 # Recharge package
 rch = flopy.mf6.ModflowGwfrcha(gwf, 
@@ -337,8 +337,8 @@ for well_id, group in well_df.groupby("well_id"):
     row = group["row"].iloc[0]
     col = group["col"].iloc[0]
     
-    # Find the pumping rate at the first time step (or modify as needed)
-    q0 = par_df[par_df.index=="q_0"].iloc[0,0] # assumes time=0 exists
+    # Find the STEADY STATE pumping rate from parameters
+    q0 = par_df[par_df.index=="q_0"].iloc[0,0]
     
     # Append tuple to list
     wel_spd[0].append((lay, row, col, q0, well_id))
@@ -359,7 +359,7 @@ ghb_spd1[0] = [
     for ilay in range(nlay)]
 
 # GHB in the top of first layer
-# ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2,col_start=ncol-25, col_end=ncol-2)
+# ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1,col_start=ncol-25, col_end=ncol-2)
 # ghb_spd2 = {}
 # ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j], 100 * kh[k]*dcol*width, "top_ghb") for (k, i, j) in ghb_cells2]
 # ghb_spd1[0].extend(ghb_spd2[0])

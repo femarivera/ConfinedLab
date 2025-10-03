@@ -29,16 +29,6 @@ import flopy
 from scipy.optimize import curve_fit
 from sklearn.metrics import r2_score
 
-# ===== Global style settings =====
-plt.rcParams['font.family'] = 'Calibri'
-plt.rcParams['font.size'] = 12
-plt.rcParams['axes.titlesize'] = 14
-plt.rcParams['axes.labelsize'] = 12
-plt.rcParams['legend.fontsize'] = 12
-plt.rcParams['xtick.labelsize'] = 10
-plt.rcParams['ytick.labelsize'] = 10
-plt.rcParams['figure.dpi'] = 300 
-
 # Import local modules
 sys.path.append('..')
 from mlibs import modplot6 # type: ignore

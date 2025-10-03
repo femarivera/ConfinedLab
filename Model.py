@@ -278,29 +278,30 @@ oc = flopy.mf6.ModflowGwfoc(
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
 #River package
-modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp="grid_topview.shp", crs="EPSG:4326")
-riv_cells = modbound6.active_cells_from_line("gis/grid_topview.shp", "gis/river.shp")
-riv_spd1 = modbound6.create_riv_spd(
-    riv_cells,
-    ztop_array,
-    thickness_array,
-    10*drn_cond,
-    drow,
-    river_width=1,
-    riverbed_thickness=1,
-    stage_type="absolute",
-    a=0,
-    b=1,
-    conc=None)
-riv1 = flopy.mf6.ModflowGwfriv(gwf, 
-                              pname = "riv",
-                              save_flows = True,
-                              stress_period_data = riv_spd1,
-                              filename = f"{model_name}.riv")
+# modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp="grid_topview.shp", crs="EPSG:4326")
+# riv_cells = modbound6.active_cells_from_line("gis/grid_topview.shp", "gis/river.shp")
+# riv_spd1 = modbound6.create_riv_spd(
+#     riv_cells,
+#     ztop_array,
+#     thickness_array,
+#     10*drn_cond,
+#     drow,
+#     river_width=1,
+#     riverbed_thickness=1,
+#     stage_type="absolute",
+#     a=0,
+#     b=1,
+#     conc=None)
+# riv1 = flopy.mf6.ModflowGwfriv(gwf, 
+#                               pname = "riv",
+#                               save_flows = True,
+#                               stress_period_data = riv_spd1,
+#                               filename = f"{model_name}.riv")
 
 # Drain package
 drn_cells1 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones = [1,2,3,4,5])
-drn_cells = [t for t in drn_cells1 if t not in riv_cells] 
+# drn_cells = [t for t in drn_cells1 if t not in riv_cells] 
+drn_cells = drn_cells1
 drn_spd = modbound6.create_drn_spd(
     drn_cells,
     ztop_array,

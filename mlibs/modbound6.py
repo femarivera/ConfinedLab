@@ -108,12 +108,12 @@ def create_riv_spd(
 
         riv_bottom = riv_stage - b
         if riv_bottom < cell_bottom:
-            # If below cell bottom, set it a proportion above cell bottom
-            riv_bottom = cell_bottom + (0.1 * thickness_array[k, i, j])
-            # Ensure still below stage
-            riv_bottom = min(riv_bottom, riv_stage - 0.01)        
+            # If below cell bottom, set it a proportion below river stage
+            riv_bottom = riv_stage - (0.1 * (riv_stage-cell_bottom))
+            # # Ensure still below stage
+            # riv_bottom = min(riv_bottom, riv_stage - 0.01)        
 
-        assert ztop[k, i, j] >= riv_stage >= riv_bottom > cell_bottom, (
+        assert ztop[k, i, j] >= riv_stage >= riv_bottom >= cell_bottom, (
             f"Inconsistent elevations for cell (k={k}, i={i}, j={j}): "
             f"ztop={ztop[k, i, j]}, riv_stage={riv_stage}, riv_bottom={riv_bottom}, cell_bottom={cell_bottom}"
         )
@@ -206,7 +206,7 @@ def create_ghb_spd(
             if ghb_elev < cell_bottom:
                 ghb_elev = ztop[k, i, j] - (0.1 * thickness_array[k, i , j])
 
-        assert ztop[k, i, j] > ghb_elev > cell_bottom, (
+        assert ztop[k, i, j] >= ghb_elev >= cell_bottom, (
             f"Inconsistent elevations for cell (k={k}, i={i}, j={j}): "
             f"ztop={ztop[k, i, j]}, ghb_elev={ghb_elev}, cell_bottom={cell_bottom}"
         )
@@ -219,27 +219,6 @@ def create_ghb_spd(
             ghb_entries.append((k, i, j, ghb_elev, ghb_cond))
 
     ghb_spd[0] = ghb_entries
-    return ghb_spd
-    # Initialize an empty dictionary for the river stress period data
-    ghb_spd = {}
-
-    # List to hold all river data entries
-    ghb_entries = []
-
-    # Iterate over each cell specified in the input list
-    for k, i, j in cells:
-        # Compute river stage and bottom for the current cell
-        ghb = ztop[k, i, j] - (a * thickness_array[k, i, j])
-        
-        # Compute river conductance
-        ghb_cond = k_array[k] * drow * thickness_array[k, i, j] / ghb_distance
-
-        # Append the river entry for the current cell
-        ghb_entries.append((k, i, j, ghb, ghb_cond))
-
-    # Assign the river entries to the first stress period (0)
-    ghb_spd[0] = ghb_entries
-
     return ghb_spd
 
 def create_drn_spd(

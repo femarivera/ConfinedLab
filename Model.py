@@ -278,6 +278,7 @@ oc = flopy.mf6.ModflowGwfoc(
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
 #River package
+modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp="grid_topview.shp", crs="EPSG:4326")
 riv_cells = modbound6.active_cells_from_line("gis/grid_topview.shp", "gis/river.shp")
 riv_spd1 = modbound6.create_riv_spd(
     riv_cells,

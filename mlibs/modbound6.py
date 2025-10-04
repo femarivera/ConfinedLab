@@ -584,7 +584,7 @@ def export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp="grid_topview.shp"
             if k < 0:  # skip inactive cells
                 continue
             x0, x1 = x_edges[j], x_edges[j+1]
-            y0, y1 = y_edges[i], y_edges[i+1]
+            y0, y1 = y_edges[nrow - i - 1], y_edges[nrow - i] 
             poly = Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)])
             cells.append({
                 "geometry": poly,
@@ -596,7 +596,7 @@ def export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp="grid_topview.shp"
     # assign EPSG:4326 CRS
     gdf = gpd.GeoDataFrame(cells, crs=crs)
     gdf.to_file(out_shp)
-    print(f"Exported top-view grid to {out_shp} with CRS EPSG:4326")
+    print(f"Exported top-view grid to {out_shp} with CRS {crs}")
 
 def active_cells_from_line(grid_shp, river_shp):
     

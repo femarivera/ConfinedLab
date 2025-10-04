@@ -61,17 +61,19 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
 
-boundary_keywords = ["GHB", "WEL", "DRN"] #List of boundaries used in the model for plotting
+boundary_keywords = ["GHB", "WEL", "RIV"] #List of boundaries used in the model for plotting
 heterogeneity = False # If True, generates random hydraulic conductivity fields
+river_shapefile = True
 
 STEADY = True # Runs the steady state model
 plot_steady = True # Plots steady state outputs
-iterate = False # Iterates pumping rates over steady state model. Uses q_values defined above
+iterate = False # Iterates pumping rates over steady state model
 
 TRANSIENT = True # Runs the transient model
 plot_transient = True # Plots transient outputs
 animate = False # Animates transient cross sections
 
+three_dim = True # If True, plots map views of heads and flows
 # ------------------------------------------------------------------------------- #
 # --------------------------------- MODEL SETUP --------------------------------- #
 # ------------------------------------------------------------------------------- #
@@ -272,36 +274,38 @@ oc = flopy.mf6.ModflowGwfoc(
     budget_filerecord = f"output/{model_name}.cbb",
     budgetcsv_filerecord = f"output/{model_name}_budget.csv",
     saverecord = [("HEAD", "ALL"), ("BUDGET", "ALL")],
-    printrecord = [("HEAD", "ALL"),("BUDGET", "ALL")], 
+    printrecord = [("HEAD", "ALL"),("BUDGET", "LAST")], 
     filename = f"{model_name}.oc")
 
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
 #River package
-# modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp="grid_topview.shp", crs="EPSG:4326")
-# riv_cells = modbound6.active_cells_from_line("gis/grid_topview.shp", "gis/river.shp")
-# riv_spd1 = modbound6.create_riv_spd(
-#     riv_cells,
-#     ztop_array,
-#     thickness_array,
-#     10*drn_cond,
-#     drow,
-#     river_width=1,
-#     riverbed_thickness=1,
-#     stage_type="absolute",
-#     a=0,
-#     b=1,
-#     conc=None)
-# riv1 = flopy.mf6.ModflowGwfriv(gwf, 
-#                               pname = "riv",
-#                               save_flows = True,
-#                               stress_period_data = riv_spd1,
-#                               filename = f"{model_name}.riv")
+if river_shapefile: 
+    modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp="gis/grid_topview.shp", crs="EPSG:4326")
+    riv_cells = modbound6.active_cells_from_line("gis/grid_topview.shp", "gis/river.shp")
+else:
+    riv_cells = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 0, ncol-2)
+riv_spd = modbound6.create_riv_spd(
+    riv_cells,
+    ztop_array,
+    thickness_array,
+    10*drn_cond,
+    drow,
+    river_width=1,
+    riverbed_thickness=1,
+    stage_type="absolute",
+    a=0,
+    b=1,
+    conc=None)
+riv = flopy.mf6.ModflowGwfriv(gwf, 
+                              pname = "riv",
+                              save_flows = True,
+                              stress_period_data = riv_spd,
+                              filename = f"{model_name}.riv")
 
 # Drain package
-drn_cells1 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones = [1,2,3,4,5])
-# drn_cells = [t for t in drn_cells1 if t not in riv_cells] 
-drn_cells = drn_cells1
+drn_cells = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones = [1, 2, 3, 4, 5])
+drn_cells = [t for t in drn_cells if t not in riv_cells] 
 drn_spd = modbound6.create_drn_spd(
     drn_cells,
     ztop_array,
@@ -356,8 +360,9 @@ wel = flopy.mf6.ModflowGwfwel(gwf,
 ghb_1 = ztop_array[0,0,ncol-1] # Head in the GHB
 ghb_spd1 = {}
 ghb_spd1[0] = [
-    ((ilay, 0, ncol-1), ghb_1, kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
-    for ilay in range(nlay)]
+    ((ilay, irow, ncol-1), ghb_1, kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
+    for ilay in range(nlay)
+    for irow in range(nrow)]
 
 # GHB in the top of first layer
 # ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1,col_start=ncol-25, col_end=ncol-2)
@@ -401,6 +406,39 @@ if STEADY:
     # -------------------------- PLOTTING -------------------------- #
 
     if plot_steady:
+
+        if three_dim:
+
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L1.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=0, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 1")
+
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L2.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=4, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 2")
+            
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L3.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=7, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 3")
+            
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L4.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=10, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 4")
+            
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L5.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=13, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 5")
+        
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                 f"{figure_folder}/cross_section_heads.png",
                                 boundary_keywords = ["WEL"],
@@ -655,7 +693,7 @@ if TRANSIENT:
     if plot_transient:
         
         # Select time step, period, and layer to plot
-        sp_num = 0
+        sp_num = nper - 1
         ts_num = 0
         layer = 0
         elapsed_time = modtransient6.elapsed_time(perioddata, sp_num, ts_num)
@@ -669,8 +707,8 @@ if TRANSIENT:
         transient_heads = hobj.get_alldata()
         times_list = hobj.get_times()
 
-        cb = gwf.oc.output.budget()
-        cb.get_data(idx=0, full3D=True) #Get cell budget file
+        # cb = gwf.oc.output.budget()
+        # cb.get_data(idx=0, full3D=True) #Get cell budget file
 
         budget_file_t = f"{output_folder}/{model_name_tr}_budget.csv"
 
@@ -679,6 +717,37 @@ if TRANSIENT:
         head_file_t = f"{output_folder}/head_obs_t.csv"
 
         #--------------------------------------- HEADS ---------------------------------------------#
+        if three_dim:
+
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L1.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=0, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 1")
+
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L2.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=4, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 2")
+            
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L3.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=7, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 3")
+            
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L4.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=10, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 4")
+            
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L5.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=13, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 5")
 
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                         f"{figure_folder}/cross_section_heads_t.png",
@@ -777,17 +846,6 @@ if TRANSIENT:
         #                                             plot_name = f"Residual_diffusion_{t}.png" )
 
         # modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
-
-        # modtransient6.animate_sto_cb_cross_section( gwf,
-        #                                             cb, # CellBudgetFile object
-        #                                             nrow//2,  # Row index for cross-section
-        #                                             f"{figure_folder}/cross_sections_sto",   # Folder to save individual plots
-        #                                             f"{figure_folder}/animation_sto.gif",    # Path to save GIF
-        #                                             boundary_keywords=None,
-        #                                             show=False, save=True,
-        #                                             figsize=(19, 6), fontsize=14,
-        #                                             gif_start=30, gif_step=50, duration=250,
-        #                                             vmin=-10e-12, vmax=0)
 
         start = 3600000 #start of the step change in model units
         start_time_years = start / 360  # Convert to years assuming 360 days/year

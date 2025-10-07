@@ -461,16 +461,16 @@ def plot_bud_time_series(file_path,
     columns_storage_in = [col for col in data.columns if "STO" in col and "IN" in col]
     columns_storage_out = [col for col in data.columns if "STO" in col and "OUT" in col]
 
-    # Prepare data for time series
-    if time_units == 'days':
-        time_data = data["time"]  # Assuming input time is in days
-        time_axis_label = 'Time [days]'
-    elif time_units == 'years':
-        time_data = data["time"] / 360  # Convert days to years
-        time_axis_label = 'Time [years]'
-    else:
-        raise ValueError("time_units must be 'days' or 'years'")
-    
+    # Compute storage change in m3
+    time_data = data["time"]
+    storage_in = data[columns_storage_in].sum(axis=1)
+    storage_out = data[columns_storage_out].sum(axis=1)
+    storage_change_rate = storage_out - storage_in
+    storage_change_integrals = np.array([np.trapz(storage_change_rate[:i+1], time_data[:i+1]) - 
+                                         np.trapz(storage_change_rate[:i], time_data[:i]) 
+                                         if i > 0 else 0 for i in range(len(storage_change_rate))])
+    storage_change = np.cumsum(storage_change_integrals) 
+        
     # Find the global max across all relevant columns
     ymax = max(
     data[columns_in].to_numpy().max(),
@@ -480,6 +480,16 @@ def plot_bud_time_series(file_path,
 
     # Create a figure with subplots
     fig, axs = plt.subplots(2, 2, figsize=figsize)
+
+    # Prepare data for time series plotting
+    if time_units == 'days':
+        time_data = data["time"]  # Assuming input time is in days
+        time_axis_label = 'Time [days]'
+    elif time_units == 'years':
+        time_data = data["time"] / 360  # Convert days to years
+        time_axis_label = 'Time [years]'
+    else:
+        raise ValueError("time_units must be 'days' or 'years'")
 
     # Plot inflow components (excluding TOTAL_IN and STO columns)
     for col in columns_in:
@@ -511,14 +521,7 @@ def plot_bud_time_series(file_path,
     axs[1, 0].set_ylim(0, ymax*1.1)  # Set y-axis limit based on global max
     axs[1, 0].grid()
 
-    # Compute and plot CHANGE IN STORAGE (STORAGE OUT - STORAGE IN)
-    storage_in = data[columns_storage_in].sum(axis=1)
-    storage_out = data[columns_storage_out].sum(axis=1)
-    storage_change_rate = storage_out - storage_in
-    storage_change_integrals = np.array([np.trapz(storage_change_rate[:i+1], time_data[:i+1]) - 
-                                         np.trapz(storage_change_rate[:i], time_data[:i]) 
-                                         if i > 0 else 0 for i in range(len(storage_change_rate))])
-    storage_change = np.cumsum(storage_change_integrals)
+    # Plot CHANGE IN STORAGE (STORAGE OUT - STORAGE IN)
     axs[1, 1].plot(time_data, storage_change, label="STORAGE CHANGE", color="green")
     axs[1, 1].set_title("CHANGE IN STORAGE", fontsize=fontsize)
     axs[1, 1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
@@ -911,16 +914,6 @@ def plot_zone_budget(csv_path,
     """
     # Load the CSV file
     df = pd.read_csv(csv_path)
-    
-    # Prepare data for time series
-    if time_units == 'days':
-        time_data = df["totim"]  # Assuming input time is in days
-        time_axis_label = 'Time [days]'
-    elif time_units == 'years':
-        time_data = df["totim"] / 360  # Convert days to years
-        time_axis_label = 'Time [years]'
-    else:
-        raise ValueError("time_units must be 'days' or 'years'")
 
     # Identify unique zones
     zones = df['zone'].unique()
@@ -952,20 +945,12 @@ def plot_zone_budget(csv_path,
         zone_outflow_columns = [col for col in outflow_columns if zone_specific_exclude not in col]
         
         zone_data = df[df['zone'] == zone]
-        
-        # Prepare data for time series
-        if time_units == 'days':
-            time_data = zone_data["totim"]  # Assuming input time is in days
-            time_axis_label = 'Time [days]'
-        elif time_units == 'years':
-            time_data = zone_data["totim"] / 360  # Convert days to years
-            time_axis_label = 'Time [years]'
-        else:
-            raise ValueError("time_units must be 'days' or 'years'")
+        time_data = zone_data["totim"]
 
         storage_in = zone_data[storage_in_columns].sum(axis=1)
         storage_out = zone_data[storage_out_columns].sum(axis=1)
         storage_change_rate = storage_out - storage_in
+        #Make sure integrals are done with time in original units (days)
         storage_change_integrals = np.array([np.trapz(storage_change_rate[:i+1], time_data[:i+1]) - 
                                          np.trapz(storage_change_rate[:i], time_data[:i]) 
                                          if i > 0 else 0 for i in range(len(storage_change_rate))])
@@ -983,9 +968,19 @@ def plot_zone_budget(csv_path,
         # Create a subplot for inflows and outflows
         fig, ax = plt.subplots(2, 2, figsize=figsize, constrained_layout=True)
         
+        # Prepare data for time series plotting
+        if time_units == 'days':
+            time_data = zone_data["totim"]  # Assuming input time is in days
+            time_axis_label = 'Time [days]'
+        elif time_units == 'years':
+            time_data = zone_data["totim"] / 360  # Convert days to years
+            time_axis_label = 'Time [years]'
+        else:
+            raise ValueError("time_units must be 'days' or 'years'")
+
         # Plot inflows
         for col in zone_inflow_columns:
-            ax[0,0].plot(zone_data['totim'], zone_data[col], label=simplify_name(col))
+            ax[0,0].plot(time_data, zone_data[col], label=simplify_name(col))
         ax[0,0].set_title(f'ZONE {zone} INFLOW COMPONENTS', fontsize=fontsize)
         ax[0,0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         ax[0,0].set_ylabel('Flow [m³/day]', fontsize=fontsize/1.2)
@@ -995,7 +990,7 @@ def plot_zone_budget(csv_path,
         
         # Plot outflows
         for col in zone_outflow_columns:
-            ax[0,1].plot(zone_data['totim'], zone_data[col], label=simplify_name(col))
+            ax[0,1].plot(time_data, zone_data[col], label=simplify_name(col))
         ax[0,1].set_title(f'ZONE {zone} OUTFLOWS', fontsize=fontsize)
         ax[0,1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         ax[0,1].set_ylabel('Flow [m³/day]', fontsize=fontsize/1.2)
@@ -1004,8 +999,8 @@ def plot_zone_budget(csv_path,
         ax[0,1].grid()
 
         # Plot TOTAL IN TOTAL OUT
-        ax[1,0].plot(zone_data['totim'], data_in, label="TOTAL INFLOWS")
-        ax[1,0].plot(zone_data['totim'], data_out, label="TOTAL OUTFLOWS")
+        ax[1,0].plot(time_data, data_in, label="TOTAL INFLOWS")
+        ax[1,0].plot(time_data, data_out, label="TOTAL OUTFLOWS")
         ax[1,0].set_title(f'ZONE {zone} TOTAL FLOWS', fontsize=fontsize)
         ax[1,0].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
         ax[1,0].set_ylabel('Flow [m³/day]', fontsize=fontsize/1.2)
@@ -1014,10 +1009,10 @@ def plot_zone_budget(csv_path,
         ax[1,0].grid()
         
         # Plot change in storage
-        ax[1,1].plot(zone_data['totim'], storage_change, label="CHANGE IN STORAGE")
+        ax[1,1].plot(time_data, storage_change, label="CHANGE IN STORAGE")
         ax[1,1].set_title(f'ZONE {zone} CHANGE IN STORAGE', fontsize=fontsize)
         ax[1,1].set_xlabel(time_axis_label, fontsize=fontsize/1.2)
-        ax[1,1].set_ylabel('Flow [m³/day]', fontsize=fontsize/1.2)
+        ax[1,1].set_ylabel('Flow [m³]', fontsize=fontsize/1.2)
         ax[1,1].legend(fontsize=fontsize/1.2)
         ax[1,1].grid()
         
@@ -1067,13 +1062,22 @@ def plot_zone_budget(csv_path,
 
     # Optional: Plotting
     fig2 = plt.figure(figsize=figsize)
+    if time_units == 'days':
+        time_data = vertical_leakage_df['totim']
+        time_axis_label = 'Time [days]'
+    if time_units == 'years':
+        time_data = vertical_leakage_df['totim'] / 360  # Convert days to years
+        time_axis_label = 'Time [years]'
+    else:
+        raise ValueError("time_units must be 'days' or 'years'")
+    
     for zone in zones:
         description = zone_descriptions.get(zone, f"ZONE {zone}")
-        plt.plot(vertical_leakage_df['totim'], vertical_leakage_df[f'ZONE_{zone}'], label=f'ZONE {zone} - {description}')
+        plt.plot(time_data, vertical_leakage_df[f'ZONE_{zone}'], label=f'ZONE {zone} - {description}')
 
     plt.title('WATER TRANSFERS VIA VERTICAL LEAKAGE', fontsize=fontsize)
-    plt.xlabel('Time [days]', fontsize=fontsize)
-    plt.ylabel('Flow Balance (Inflows - Outflows) [m³/day]', fontsize=fontsize)
+    plt.xlabel(time_axis_label, fontsize=fontsize)
+    plt.ylabel('Net leakage (Inflows - Outflows) [m³/day]', fontsize=fontsize)
     plt.legend(fontsize=fontsize/1.2)
     plt.grid()
     plt.tight_layout()

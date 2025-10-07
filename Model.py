@@ -60,10 +60,10 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # ------------------------------------------------------------------------------- #
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
+rivers = False # If True, includes river package instead of drain package
+river_shapefile = False # If True, extracts river cells from shapefile
 
-boundary_keywords = ["GHB", "WEL", "RIV"] #List of boundaries used in the model for plotting
 heterogeneity = False # If True, generates random hydraulic conductivity fields
-river_shapefile = True
 
 STEADY = True # Runs the steady state model
 plot_steady = True # Plots steady state outputs
@@ -73,7 +73,13 @@ TRANSIENT = True # Runs the transient model
 plot_transient = True # Plots transient outputs
 animate = False # Animates transient cross sections
 
-three_dim = True # If True, plots map views of heads and flows
+plot_maps = False # If True, plots map views of heads and flows
+
+if rivers:
+    boundary_keywords = ["GHB", "WEL", "RIV"]
+else:
+    boundary_keywords = ["GHB", "WEL", "DRN"]
+
 # ------------------------------------------------------------------------------- #
 # --------------------------------- MODEL SETUP --------------------------------- #
 # ------------------------------------------------------------------------------- #
@@ -232,11 +238,11 @@ ims = flopy.mf6.ModflowIms(sim, pname="ims",
                            print_option="SUMMARY",
                            complexity="COMPLEX",
                            outer_dvclose=0.01,
-                           outer_maximum=1000,
+                           outer_maximum=5000,
                            under_relaxation="NONE",
-                           inner_maximum=1000,
+                           inner_maximum=5000,
                            inner_dvclose=0.01,
-                           rcloserecord=0.1,
+                           rcloserecord=0.01,
                            linear_acceleration="BICGSTAB",
                            scaling_method="NONE",
                            reordering_method="NONE",
@@ -279,49 +285,50 @@ oc = flopy.mf6.ModflowGwfoc(
 
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
-#River package
-if river_shapefile: 
-    modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp="gis/grid_topview.shp", crs="EPSG:4326")
-    riv_cells = modbound6.active_cells_from_line("gis/grid_topview.shp", "gis/river.shp")
-else:
-    riv_cells = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 0, ncol-2)
-riv_spd = modbound6.create_riv_spd(
-    riv_cells,
-    ztop_array,
-    thickness_array,
-    10*drn_cond,
-    drow,
-    river_width=1,
-    riverbed_thickness=1,
-    stage_type="absolute",
-    a=0,
-    b=1,
-    conc=None)
-riv = flopy.mf6.ModflowGwfriv(gwf, 
-                              pname = "riv",
-                              save_flows = True,
-                              stress_period_data = riv_spd,
-                              filename = f"{model_name}.riv")
-
-# Drain package
-drn_cells = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones = [1, 2, 3, 4, 5])
-drn_cells = [t for t in drn_cells if t not in riv_cells] 
-drn_spd = modbound6.create_drn_spd(
-    drn_cells,
-    ztop_array,
-    thickness_array,
-    drn_cond,
-    drow,
-    drain_width=1,
-    drainbed_thickness=1,
-    elev_type="absolute",
-    a=0,
-    conc=None)
-drn = flopy.mf6.ModflowGwfdrn(gwf, 
-                              pname = "drn",
-                              save_flows = True,
-                              stress_period_data = drn_spd,
-                              filename = f"{model_name}.drn")
+if rivers:
+    #River package
+    if river_shapefile: 
+        modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp="gis/grid_topview.shp", crs="EPSG:4326")
+        riv_cells = modbound6.active_cells_from_line("gis/grid_topview.shp", "gis/river.shp")
+    else:
+        riv_cells = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 0, ncol-2)
+    riv_spd = modbound6.create_riv_spd(
+        riv_cells,
+        ztop_array,
+        thickness_array,
+        drn_cond,
+        drow,
+        river_width=1,
+        riverbed_thickness=1,
+        stage_type="absolute",
+        a=0,
+        b=0.1,
+        conc=None)
+    riv = flopy.mf6.ModflowGwfriv(gwf, 
+                                pname = "riv",
+                                save_flows = True,
+                                stress_period_data = riv_spd,
+                                filename = f"{model_name}.riv")
+else: 
+    # Drain package
+    drn_cells = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones = [1, 2, 3, 4, 5])
+    # drn_cells = [t for t in drn_cells if t not in riv_cells] 
+    drn_spd = modbound6.create_drn_spd(
+        drn_cells,
+        ztop_array,
+        thickness_array,
+        drn_cond,
+        drow,
+        drain_width=1,
+        drainbed_thickness=1,
+        elev_type="absolute",
+        a=0,
+        conc=None)
+    drn = flopy.mf6.ModflowGwfdrn(gwf, 
+                                pname = "drn",
+                                save_flows = True,
+                                stress_period_data = drn_spd,
+                                filename = f"{model_name}.drn")
 
 # Recharge package
 rch = flopy.mf6.ModflowGwfrcha(gwf, 
@@ -407,7 +414,7 @@ if STEADY:
 
     if plot_steady:
 
-        if three_dim:
+        if plot_maps:
 
             modplot6.plot_map_view(gwf, head, qx, qy, 
                     f"{figure_folder}/map_heads_L1.png", 
@@ -717,7 +724,7 @@ if TRANSIENT:
         head_file_t = f"{output_folder}/head_obs_t.csv"
 
         #--------------------------------------- HEADS ---------------------------------------------#
-        if three_dim:
+        if plot_maps:
 
             modplot6.plot_map_view(gwf, head, qx, qy, 
                     f"{figure_folder}/map_heads_L1.png", 
@@ -824,32 +831,32 @@ if TRANSIENT:
 
         # ------------------------------------- RESPONSE TIMES ------------------------------------------ #
         
-        # start = 3600000 #start of the step change in model units
-        # step = 36000 #Size of the steps in model units
-        # n = 150
-        # end = start + (step*n)
+        start = 3600000 #start of the step change in model units
+        step = 36000 #Size of the steps in model units
+        n = 20
+        end = start + (step*n)
 
-        # for t in range(start, end, step):
-        #     modtransient6.plot_residual_diffusion(  gwf=gwf,
-        #                                             start_time=start,
-        #                                             time=t,
-        #                                             perioddata=perioddata,
-        #                                             nrow=nrow//2,
-        #                                             transient_heads=transient_heads,
-        #                                             steady_state_heads=steady_state_heads,
-        #                                             title=f"Absolute residual difussion in hydraulic heads after {int((t - start)/360)} years",
-        #                                             label="Head difference (m)",
-        #                                             vmin=0,
-        #                                             vmax=None,
-        #                                             save=True,
-        #                                             output_folder=f"{figure_folder}/Residual_diffusion", 
-        #                                             plot_name = f"Residual_diffusion_{t}.png" )
+        for t in range(start, end, step):
+            modtransient6.plot_residual_diffusion(  gwf=gwf,
+                                                    start_time=start,
+                                                    time=t,
+                                                    perioddata=perioddata,
+                                                    nrow=nrow//2,
+                                                    transient_heads=transient_heads,
+                                                    steady_state_heads=steady_state_heads,
+                                                    title=f"Absolute residual difussion in hydraulic heads after {int((t - start)/360)} years",
+                                                    label="Head difference (m)",
+                                                    vmin=0,
+                                                    vmax=None,
+                                                    save=True,
+                                                    output_folder=f"{figure_folder}/Residual_diffusion", 
+                                                    plot_name = f"Residual_diffusion_{t}.png" )
 
-        # modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
+        modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
 
         start = 3600000 #start of the step change in model units
         start_time_years = start / 360  # Convert to years assuming 360 days/year
-        start_step = 30 # Corresponding time step index
+        start_step = 100 # Corresponding time step index
 
         modtransient6.tr_storage_change_rate_zones(zonebud_file_t, output_folder, figure_folder, 
                                    show=False, save_csv=True, save_fig=True, 
@@ -930,7 +937,6 @@ if TRANSIENT:
                                                 fig_output_folder=figure_folder, 
                                                 save_fig=True, show_fig=False, bounds="stdev")
 
-        
         #--------------------------------------- TRANSIENT ANIMATION ---------------------------------------------#
 
         if animate:

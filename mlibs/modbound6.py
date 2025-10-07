@@ -82,8 +82,8 @@ def create_riv_spd(
             raise ValueError("For 'absolute' stage_type, 'a' must be a positive float or int (a >= 0).")
     else:
         raise ValueError("stage_type must be either 'proportion' or 'absolute'.")
-    if not (isinstance(b, (float, int)) and b > 0):
-        raise ValueError("b must be a positive number (desired separation in model units).")
+    if not (isinstance(b, (float, int)) and b >= 0):
+        raise ValueError("b must be a non-negative number (desired separation in model units).")
     if conc is not None and not isinstance(conc, (float, int)):
         raise ValueError("conc must be a float, int, or None.")
 

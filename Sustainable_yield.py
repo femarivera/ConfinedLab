@@ -55,8 +55,6 @@ head_file_name = "head_obs_t.csv"
 # Define paths to inputs of the sustainable yield estimation
 input_folder = summary_dir # Takes as input the path to the summary of the yield iterations
 
-planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000] # In years
-pump_start = 7587000 # In model totim units (days)
 # Define start time of pumping, planning horizons and constraints
 constraints = [
     { 'label': "Spring discharge all zones", 'id': "drn_all", 'constrain': "DRN",
@@ -81,7 +79,7 @@ constraints = [
 # --------------------------------------------------------------------------------------- #
 
 if ITERATE: 
-    modpump6.iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, 
+    modpump6.iterate_model_script(setup_file, model_file, mlibs_path, 
                                             iterations_output_dir, summary_dir, 
                                             model_ws_name, budget_file_name, 
                                             zonebud_file_name, head_file_name)

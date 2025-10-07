@@ -33,20 +33,11 @@ import os
 import sys
 import numpy as np
 import pandas as pd
-import geopandas as gpd
-
 import flopy
-from flopy.utils.geometry import Point, LineString, MultiPoint
-from flopy.discretization import StructuredGrid
-from flopy.utils.gridintersect import GridIntersect
-import flopy.utils.binaryfile as bf
-import pyemu
 
 # Plot settings
-import matplotlib
 #matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gspec
 plt.rc('font', family='serif', size=9)
 sgcol_width = 9/2.54
 mdcol_width = 14/2.54
@@ -69,17 +60,25 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # ------------------------------------------------------------------------------- #
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
+rivers = False # If True, includes river package instead of drain package
+river_shapefile = False # If True, extracts river cells from shapefile
 
-boundary_keywords = ["GHB", "WEL"] #List of boundaries used in the model for plotting
-heterogeneity = True # If True, generates random hydraulic conductivity fields
+heterogeneity = False # If True, generates random hydraulic conductivity fields
 
 STEADY = False # Runs the steady state model
-plot_steady = True # Plots steady state outputs
-iterate = True # Iterates pumping rates over steady state model. Uses q_values defined above
+plot_steady = False # Plots steady state outputs
+iterate = False # Iterates pumping rates over steady state model
 
 TRANSIENT = True # Runs the transient model
 plot_transient = True # Plots transient outputs
 animate = False # Animates transient cross sections
+
+plot_maps = False # If True, plots map views of heads and flows (just works when model is 3D or 2D Horizontal)
+
+if rivers:
+    boundary_keywords = ["GHB", "WEL", "RIV"]
+else:
+    boundary_keywords = ["GHB", "WEL", "DRN"]
 
 # ------------------------------------------------------------------------------- #
 # --------------------------------- MODEL SETUP --------------------------------- #
@@ -91,8 +90,11 @@ model_name = 'DEESAC'
 model_name_tr = 'DEESACt'
 output_folder = f"{model_ws}/output"
 figure_folder = f"{model_ws}/fig"
+gis_folder = "C:/Users/cmarinriver/Projects/ConfinedLab/gis" 
+
 os.makedirs(output_folder, exist_ok=True)
 os.makedirs(figure_folder, exist_ok=True)
+os.makedirs(gis_folder, exist_ok=True)
 
 setup_file = r'C:/Users/cmarinriver/Projects/ConfinedLab/setup.xlsx' # Excel file containing model setup parameters
 
@@ -130,10 +132,11 @@ outcrop_zmax = geom_df["outcrop_zmax"].to_numpy() # Elevation (Just used when SL
 outcrop_zmin = geom_df["outcrop_zmin"].to_numpy() # Elevation (Just used when SLOPE are set to True)
 base_thicknesses = geom_df["base_thicknesses"].to_numpy() # Layer thickness in meters
 outcrop_cells = geom_df["outcrop_cells"].to_numpy() # Cell ID where the unit starts outcropping (measured from left to right)
+zones = geom_df["zone"].to_numpy() # Zone ID for each layer
 
 # Create idomain, irch and recharge arrays
-epsilon = 0 # Minimum allowed cell thickness in meters
-transition = 70 # Transitions cells (Just used when SMOOTH_TOPO is set to True)
+epsilon = float(geom_df["epsilon"].iloc[0]) # Minimum allowed cell thickness in meters
+transition = int(geom_df["transition_cells"].iloc[0]) # Transitions cells
 idomain = modgeom6.compute_idomain(nlay, nrow, ncol, outcrop_cells)
 ztop = modgeom6.compute_top(idomain, outcrop_z, transition=True, slope=True,
                             transition_cells=transition, transition_type="contain", 
@@ -146,10 +149,9 @@ idomain = modgeom6.idomain_from_thickness(thickness_array, epsilon)
 ztop_array = modgeom6.compute_ztop_array(ztop, zbot)
 irch = modgeom6.compute_irch(idomain)
 R_array = modgeom6.compute_recharge(irch, R)
-zone_array = np.zeros((nlay, nrow, ncol), dtype=int) # Create zones array for zone budget
-for i in range(nlay):
-    zone_array[i, :, :] = i + 1
+zone_array = modgeom6.compute_3Darray(zones, idomain, dtype = int)
 kh_array = modgeom6.compute_3Darray(kh, idomain)
+kv_array = modgeom6.compute_3Darray(kv, idomain)
 
 # ------------------------------------------------------------------------------- #
 # ----------------------- RANDOM PARAMETER FIELDS ------------------------------- #
@@ -183,12 +185,13 @@ if heterogeneity:
                                         param_type="K", seed=4)
 
     kh_array = modpar6.stack_fields_to_3D([kh0, kh1, kh2, kh3, kh4], nlay, nrow, ncol)
+    kv_array = kh_array / 10  # Assume kv is one-tenth of kh
 
 # ------------------------------------------------------------------------------- #
 # ----------------------- LAYER SUBDIVISION -------------------------------------- #
 # ------------------------------------------------------------------------------- #
+nsub = geom_df["nsub"].to_list() # Number of subdivisions per layer
 
-nsub = [3,3,3,3,3]
 #Subdivide layers
 nlay, idomain, ztop_array, zbot = modgeom6.subdivide_layers(idomain, ztop_array, zbot, nsub)
 
@@ -201,6 +204,7 @@ base_thicknesses = modgeom6.subdivide_array(base_thicknesses, nsub)
 R = modgeom6.subdivide_array(R, nsub)
 zone_array = modgeom6.subdivide_array(zone_array, nsub)
 kh_array = modgeom6.subdivide_array(kh_array, nsub)
+kv_array = modgeom6.subdivide_array(kv_array, nsub)
 
 #Update thickness, irch, R_array, zone_array and kh_array
 thickness_array = ztop_array - zbot
@@ -210,6 +214,9 @@ R_array = modgeom6.compute_recharge(irch, R)
 # ------------------------------------------------------------------------------- #
 # --------------------------- BUILDING SIMULATION ------------------------------- #
 # ------------------------------------------------------------------------------- #
+
+#Save zone_array
+np.save(f"{model_ws}/zone_array.npy", zone_array)
 
 # Create the flopy simulation object
 sim = flopy.mf6.MFSimulation(sim_name = model_name, 
@@ -236,12 +243,12 @@ gwf = flopy.mf6.ModflowGwf(sim,
 ims = flopy.mf6.ModflowIms(sim, pname="ims",
                            print_option="SUMMARY",
                            complexity="COMPLEX",
-                           outer_dvclose=0.001,
-                           outer_maximum=1000,
+                           outer_dvclose=0.01,
+                           outer_maximum=5000,
                            under_relaxation="NONE",
-                           inner_maximum=1000,
-                           inner_dvclose=0.001,
-                           rcloserecord=0.001,
+                           inner_maximum=5000,
+                           inner_dvclose=0.01,
+                           rcloserecord=0.01,
                            linear_acceleration="BICGSTAB",
                            scaling_method="NONE",
                            reordering_method="NONE",
@@ -268,7 +275,7 @@ npf = flopy.mf6.ModflowGwfnpf(gwf,
                               save_specific_discharge = True,
                               icelltype= modgeom6.subdivide_array(np.array([1, 1, 1, 1, 1]), nsub), 
                               k=kh_array,
-                              k33=kh_array/10,
+                              k33=kv_array,
                               filename=f"{model_name}.npf")
 
 # Output control
@@ -279,53 +286,55 @@ oc = flopy.mf6.ModflowGwfoc(
     budget_filerecord = f"output/{model_name}.cbb",
     budgetcsv_filerecord = f"output/{model_name}_budget.csv",
     saverecord = [("HEAD", "ALL"), ("BUDGET", "ALL")],
-    printrecord = [("HEAD", "ALL"),("BUDGET", "ALL")], 
+    printrecord = [("HEAD", "ALL"),("BUDGET", "LAST")], 
     filename = f"{model_name}.oc")
 
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
 
-#River package
-# riv_cells1 = modbound6.extract_active_cells_n_range(irch, idomain, n=20, col_start=0, col_end=200)
-# riv_cells2 = modbound6.extract_active_cells_n_range(irch, idomain, n=75, col_start=200, col_end=ncol-1)
-# riv_cells = riv_cells1 + riv_cells2
-# riv_cells = riv_cells[:-1] # leave the last cell
-# riv_spd1 = modbound6.create_riv_spd(
-#     riv_cells,
-#     ztop_array,
-#     thickness_array,
-#     modgeom6.subdivide_array(np.array([kh[0],kh[1]*10,kh[2],kh[3]*10,kh[4]]), nsub),
-#     drow,
-#     river_width=1,
-#     riverbed_thickness=1,
-#     stage_type="proportion",
-#     a=0.3,
-#     b=1,
-#     conc=None)
-# riv1 = flopy.mf6.ModflowGwfriv(gwf, 
-#                               pname = "riv",
-#                               save_flows = True,
-#                               stress_period_data = riv_spd1,
-#                               filename = f"{model_name}.riv")
-
-# Drain package
-drn_cells1 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, nrow//2, nrow//2, 0, ncol-1, zones = [1,2,3,4,5])
-drn_cells = drn_cells1 
-drn_spd = modbound6.create_drn_spd(
-    drn_cells,
-    ztop_array,
-    thickness_array,
-    drn_cond,
-    drow,
-    drain_width=1,
-    drainbed_thickness=1,
-    elev_type="absolute",
-    a=1,
-    conc=None)
-drn = flopy.mf6.ModflowGwfdrn(gwf, 
-                              pname = "drn",
-                              save_flows = True,
-                              stress_period_data = drn_spd,
-                              filename = f"{model_name}.drn")
+if rivers:
+    #River package
+    if river_shapefile: 
+        modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp=f"{gis_folder}/grid_topview.shp", crs="EPSG:4326")
+        riv_cells = modbound6.active_cells_from_line(f"{gis_folder}/grid_topview.shp", f"{gis_folder}/river.shp")
+    else:
+        riv_cells = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 0, ncol-2)
+    riv_spd = modbound6.create_riv_spd(
+        riv_cells,
+        ztop_array,
+        thickness_array,
+        drn_cond,
+        drow,
+        river_width=1,
+        riverbed_thickness=1,
+        stage_type="absolute",
+        a=0,
+        b=0.1,
+        conc=None)
+    riv = flopy.mf6.ModflowGwfriv(gwf, 
+                                pname = "riv",
+                                save_flows = True,
+                                stress_period_data = riv_spd,
+                                filename = f"{model_name}.riv")
+else: 
+    # Drain package
+    drn_cells = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones = [1, 2, 3, 4, 5])
+    # drn_cells = [t for t in drn_cells if t not in riv_cells] 
+    drn_spd = modbound6.create_drn_spd(
+        drn_cells,
+        ztop_array,
+        thickness_array,
+        drn_cond,
+        drow,
+        drain_width=1,
+        drainbed_thickness=1,
+        elev_type="absolute",
+        a=0,
+        conc=None)
+    drn = flopy.mf6.ModflowGwfdrn(gwf, 
+                                pname = "drn",
+                                save_flows = True,
+                                stress_period_data = drn_spd,
+                                filename = f"{model_name}.drn")
 
 # Recharge package
 rch = flopy.mf6.ModflowGwfrcha(gwf, 
@@ -346,8 +355,8 @@ for well_id, group in well_df.groupby("well_id"):
     row = group["row"].iloc[0]
     col = group["col"].iloc[0]
     
-    # Find the pumping rate at the first time step (or modify as needed)
-    q0 = group.loc[group["time"] == 0, "q"].iloc[0]  # assumes time=0 exists
+    # Find the STEADY STATE pumping rate from parameters
+    q0 = par_df[par_df.index=="q_0"].iloc[0,0]
     
     # Append tuple to list
     wel_spd[0].append((lay, row, col, q0, well_id))
@@ -361,16 +370,17 @@ wel = flopy.mf6.ModflowGwfwel(gwf,
 
 # General head boundary package
 # GHB in the lateral outflow
-ghb_1 = ztop_array[0,0,ncol-1]-2
+ghb_1 = ztop_array[0,0,ncol-1] # Head in the GHB
 ghb_spd1 = {}
 ghb_spd1[0] = [
-    ((ilay, 0, ncol-1), ghb_1, 100 * kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
-    for ilay in range(nlay)]
+    ((ilay, irow, ncol-1), ghb_1, 10 * kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
+    for ilay in range(nlay)
+    for irow in range(nrow)]
 
 # GHB in the top of first layer
-# ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2,col_start=ncol-25, col_end=ncol-1)
+# ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1,col_start=ncol-25, col_end=ncol-2)
 # ghb_spd2 = {}
-# ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j]-2, 100 * kh[k]*dcol*width, "top_ghb") for (k, i, j) in ghb_cells2]
+# ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j], 100 * kh[k]*dcol*width, "top_ghb") for (k, i, j) in ghb_cells2]
 # ghb_spd1[0].extend(ghb_spd2[0])
 
 ghb = flopy.mf6.ModflowGwfghb(gwf,
@@ -409,15 +419,48 @@ if STEADY:
     # -------------------------- PLOTTING -------------------------- #
 
     if plot_steady:
+
+        if plot_maps:
+
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L1.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=0, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 1")
+
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L2.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=4, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 2")
+            
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L3.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=7, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 3")
+            
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L4.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=10, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 4")
+            
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L5.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=13, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 5")
+        
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                 f"{figure_folder}/cross_section_heads.png",
-                                boundary_keywords = boundary_keywords,
-                                flow_dir = False, surface = True, 
+                                boundary_keywords = ["WEL"],
+                                flow_dir = False, surface = False, 
                                 show=False, save=True, figsize=(19, 4), layers = False, 
                                 title="Cross section - Steady state simulation")
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                 f"{figure_folder}/cross_section_heads_qdir.png",
-                                boundary_keywords = boundary_keywords,
+                                boundary_keywords = ["WEL"],
                                 flow_dir = True, surface = True, 
                                 show=False, save=True, figsize=(19, 4), layers = False, 
                                 title="Cross section - Steady state simulation")
@@ -442,7 +485,7 @@ if STEADY:
         modplot6.plot_cross_section_array(  gwf,
                                             nrow//2,
                                             f"{figure_folder}/cross_section_layers.png",
-                                            boundary_keywords=["DRN"] + boundary_keywords,
+                                            boundary_keywords= boundary_keywords,
                                             show=False,
                                             save=True,
                                             ax=None,
@@ -472,7 +515,7 @@ if STEADY:
         modpump6.iterate_pumping_rate_steady(model_ws, sim, gwf, wel_spd, wel, q_values, q_ref, budget_file, nrow//2,
                                         f"{figure_folder}",
                                         f"{output_folder}/{model_name}_modpump6_ss.csv",
-                                        boundary_keywords = boundary_keywords,
+                                        boundary_keywords = ["WEL"],
                                         animate = True, animation_name = "cross_section_animation_ss.gif",
                                         duration = 250, #In seconds, duration of each frame
                                         save_budget = True, save_wells = True, save_csv = True)
@@ -536,6 +579,7 @@ if TRANSIENT:
         iconvert = 1, #Unconfined/confined mixed storage is used
         sy=sy, #Specific yield
         ss=ss, #If not specified, flopy uses default value of 1e-5 m-1
+        ss_confined_only=True,
         steady_state={0: True}, # First stress period is steady state
         transient={1: True}, 
         filename=f"{model_name_tr}.sto")
@@ -611,7 +655,7 @@ if TRANSIENT:
     last_q = {well: None for well in well_ids} # Prepare a dict to store the last known q for each well
     
     for t in all_times:
-        row = [t]  # start an list with the timestep
+        row = [t]  # start a list with the timestep
         for well in well_ids:
             # Get the row in well_df with this well and time
             matching = well_df[(well_df["well_id"] == well) & (well_df["time"] == t)]
@@ -662,7 +706,7 @@ if TRANSIENT:
     if plot_transient:
         
         # Select time step, period, and layer to plot
-        sp_num = nper - 1 
+        sp_num = nper - 1
         ts_num = 0
         layer = 0
         elapsed_time = modtransient6.elapsed_time(perioddata, sp_num, ts_num)
@@ -674,9 +718,10 @@ if TRANSIENT:
 
         hobj = flopy.utils.HeadFile(f"{output_folder}/{model_name_tr}.hds")
         transient_heads = hobj.get_alldata()
+        times_list = hobj.get_times()
 
-        cb = gwf.oc.output.budget()
-        cb.get_data(idx=0, full3D=True) #Get cell budget file
+        # cb = gwf.oc.output.budget()
+        # cb.get_data(idx=0, full3D=True) #Get cell budget file
 
         budget_file_t = f"{output_folder}/{model_name_tr}_budget.csv"
 
@@ -685,16 +730,47 @@ if TRANSIENT:
         head_file_t = f"{output_folder}/head_obs_t.csv"
 
         #--------------------------------------- HEADS ---------------------------------------------#
+        if plot_maps:
+
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L1.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=0, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 1")
+
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L2.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=4, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 2")
+            
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L3.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=7, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 3")
+            
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L4.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=10, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 4")
+            
+            modplot6.plot_map_view(gwf, head, qx, qy, 
+                    f"{figure_folder}/map_heads_L5.png", 
+                    boundary_keywords=boundary_keywords, 
+                    layer=13, flow_dir=False, contours=True,show=False, save=True,
+                    grid=True, figsize=(10, 10), fontsize=14,title="Model map view Layer 5")
 
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                         f"{figure_folder}/cross_section_heads_t.png",
-                                        boundary_keywords = boundary_keywords,
-                                        flow_dir = False, surface = True, layers=False,
+                                        boundary_keywords = ["WEL"],
+                                        flow_dir = False, surface = False, layers=False,
                                         show=False, save=True, figsize = (19, 4),
                                         title=f"Cross section at time {elapsed_time} days")
         modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, nrow//2, 
                                         f"{figure_folder}/cross_section_heads_t_qdir.png",
-                                        boundary_keywords = boundary_keywords,
+                                        boundary_keywords = ["WEL"],
                                         flow_dir = True, surface = True, layers=False,
                                         show=False, save=True, figsize = (19, 4),
                                         title=f"Cross section at time {elapsed_time} days")
@@ -741,7 +817,11 @@ if TRANSIENT:
         
         #--------------------------------------- ZONE BUDGET ---------------------------------------------#
         
-        modtransient6.plot_zone_budget(zonebud_file_t, figure_folder, show=False, save=True, 
+        modtransient6.process_csv_zonebudget(zonebud_file_t)
+        modtransient6.plot_zone_budget(zonebud_file_t,
+                                        output_folder, 
+                                       figure_folder, 
+                                       show=False, save=True, 
                                        zone_descriptions = {
                                         1: "Unconfined Aquifer",
                                         2: "Aquitard",
@@ -750,54 +830,127 @@ if TRANSIENT:
                                         5: "Confined Aquifer"}, 
                                         time_units="years")
         
-        # modtransient6.plot_water_to_wells_zonebud(zonebud_file_t, figure_folder, 
-        #                                           show=False, save=True, 
-        #                                           time_units="years")
+        modtransient6.plot_water_to_wells_zonebud(zonebud_file_t, figure_folder, 
+                                                  show=False, save=True, 
+                                                  time_units="years")
 
 
-        # ------------------------------------- RELAXATION TIMES ------------------------------------------ #
-        
-        # start = 3600000 #start of the step change in model units
-        # step = 18000 #Size of the steps in model units
-        # n = 50
-        # end = start + (step*n)
+        # ------------------------------------- RESPONSE TIMES ------------------------------------------ #
+        if STEADY:
 
-        # for t in range(start, end, step):
-        #     modtransient6.plot_residual_diffusion(  gwf=gwf,
-        #                                             start_time=start,
-        #                                             time=t,
-        #                                             perioddata=perioddata,
-        #                                             nrow=nrow//2,
-        #                                             transient_heads=transient_heads,
-        #                                             steady_state_heads=steady_state_heads,
-        #                                             title=f"Absolute residual difussion in hydraulic heads after {int((t - start)/360)} years",
-        #                                             label="Head difference (m)",
-        #                                             vmin=0.01,
-        #                                             vmax=None,
-        #                                             save=True,
-        #                                             output_folder=f"{figure_folder}/Residual_diffusion", 
-        #                                             plot_name = f"Residual_diffusion_{t}.png" )
+            start = 3600000 #start of the step change in model units
+            step = 36000 #Size of the steps in model units
+            n = 20
+            end = start + (step*n)
 
-        # modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
+            for t in range(start, end, step):
+                modtransient6.plot_residual_diffusion(  gwf=gwf,
+                                                        start_time=start,
+                                                        time=t,
+                                                        perioddata=perioddata,
+                                                        nrow=nrow//2,
+                                                        transient_heads=transient_heads,
+                                                        steady_state_heads=steady_state_heads,
+                                                        title=f"Absolute residual difussion in hydraulic heads after {int((t - start)/360)} years",
+                                                        label="Head difference (m)",
+                                                        vmin=0,
+                                                        vmax=None,
+                                                        save=True,
+                                                        output_folder=f"{figure_folder}/Residual_diffusion", 
+                                                        plot_name = f"Residual_diffusion_{t}.png" )
 
-        # modtransient6.animate_storage_cross_section(
-        #                                                 gwf,
-        #                                                 cb, # CellBudgetFile object
-        #                                                 nrow//2,  # Row index for cross-section
-        #                                                 f"{figure_folder}/cross_sections_sto",   # Folder to save individual plots
-        #                                                 f"{figure_folder}/animation_sto.gif",    # Path to save GIF
-        #                                                 boundary_keywords=None,
-        #                                                 show=False, save=True,
-        #                                                 figsize=(19, 6), fontsize=14,
-        #                                                 gif_start=30, gif_step=50, duration=250,
-        #                                                 vmin=-0.001, vmax=0.001)
+            modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
+
+            start = 3600000 #start of the step change in model units
+            start_time_years = start / 360  # Convert to years assuming 360 days/year
+            start_step = 100 # Corresponding time step index
+
+            modtransient6.tr_storage_change_rate_zones(zonebud_file_t, output_folder, figure_folder, 
+                                    show=False, save_csv=True, save_fig=True, 
+                                    figsize=(14, 12), fontsize=14,
+                                    xlim=None, ylim=None, threshold=0.0005, start_time=start_time_years+10)
+            
+            modtransient6.tr_storage_change_rate(zonebud_file_t, output_folder, figure_folder, 
+                                    show=False, save_csv=True, save_fig=True, 
+                                    figsize=(14, 12), fontsize=14,
+                                    xlim=None, ylim=None, threshold=0.0005, start_time=start_time_years+10)
+            
+            modtransient6.response_time_array_relative(
+                                                        gwf,
+                                                        steady_state_heads,
+                                                        transient_heads,
+                                                        times_list,
+                                                        threshold_percent=5,
+                                                        stability_threshold=0.1,
+                                                        array_output_folder=output_folder,
+                                                        fig_output_folder=figure_folder,
+                                                        save_array=True,
+                                                        save_plot=True,
+                                                        show_plot=False,
+                                                        start_step=start_step)
+            
+            modtransient6.response_time_array_absolute(gwf,
+                                                        steady_state_heads,
+                                                        transient_heads,
+                                                        times_list,
+                                                        threshold_absolute=0.02,
+                                                        stability_threshold=0.02,
+                                                        array_output_folder=output_folder,
+                                                        fig_output_folder=figure_folder,
+                                                        save_array=True,
+                                                        save_plot=True,
+                                                        show_plot=False,
+                                                        start_step=start_step)
+            
+            modtransient6.absolute_head_diffusion_zones(transient_heads, steady_state_heads, 
+                                                        times_list, zone_array, 
+                                                        start_step=start_step,
+                                                        threshold_absolute=0.02,
+                                                        stability_threshold=0.02,
+                                                        array_output_folder=output_folder, fig_output_folder=figure_folder,
+                                                        save_fig=True, show_fig=False, 
+                                                        zone_descriptions = {
+                                                        1: "Unconfined Aquifer",
+                                                        2: "Aquitard",
+                                                        3: "Confined Aquifer",
+                                                        4: "Aquitard",
+                                                        5: "Confined Aquifer"}, 
+                                                        bounds="stdev")
+            
+            modtransient6.absolute_head_diffusion(transient_heads, steady_state_heads, times_list,
+                                                    start_step=start_step, 
+                                                    threshold_absolute=0.02, stability_threshold=0.02,
+                                                    fig_output_folder=figure_folder, 
+                                                    save_fig=True, show_fig=False, bounds = "stdev")
+            
+            modtransient6.relative_head_diffusion_zones(transient_heads, steady_state_heads, 
+                                                        times_list, zone_array,
+                                                        start_step=start_step, 
+                                                        threshold_percent=5, 
+                                                        stability_threshold=0.1,
+                                                        array_output_folder=output_folder, fig_output_folder=figure_folder,
+                                                        save_fig=True, show_fig=False,
+                                                        zone_descriptions = {
+                                                        1: "Unconfined Aquifer",
+                                                        2: "Aquitard",
+                                                        3: "Confined Aquifer",
+                                                        4: "Aquitard",
+                                                        5: "Confined Aquifer"}, 
+                                                        bounds="stdev")
+            
+            modtransient6.relative_head_diffusion(transient_heads, steady_state_heads, times_list,
+                                                    start_step=start_step, 
+                                                    threshold_percent=5, stability_threshold=0.1,
+                                                    fig_output_folder=figure_folder, 
+                                                    save_fig=True, show_fig=False, bounds="stdev")
+
         #--------------------------------------- TRANSIENT ANIMATION ---------------------------------------------#
 
         if animate:
             modplot6.plot_animation(gwf, transient_heads, qx, qy, qz, nrow//2, 
                                         f"{figure_folder}/cross_sections_tr",
                                         f"{figure_folder}/cross_section_animation_tr.gif",
-                                        boundary_keywords = boundary_keywords,
+                                        boundary_keywords = ["WEL"],
                                         flow_dir = False, surface = True, layers=False,
                                         show=False, save=True, figsize = (19, 4), 
                                         gif_start=0, gif_step=20, duration=250)

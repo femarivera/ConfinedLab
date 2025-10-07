@@ -5,13 +5,23 @@ import sys
 import os
 import matplotlib.pyplot as plt
 import pandas as pd
+import numpy as np
 
 # Import local modules
 sys.path.append(r'C:/Users/cmarinriver/Projects/ConfinedLab')
-from mlibs import modpump6 # type: ignore
+from mlibs import modpump6, modgeom6 # type: ignore
+
+# --------------------------------------------------------------------------------------- #
+# ------------------------------- RUN CONTROL ------------------------------------------ #
+# --------------------------------------------------------------------------------------- #
 
 ITERATE = True  # Set to True to run the iteration process
+EFFICIENCY = False  # Set to True to run the efficiency-based iteration process
+
 ESTIMATE = True  # Set to True to run the sustainable yield estimation
+
+planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000] # In years
+pump_start = 3600000 # In model totim units (days)
 
 # --------------------------------------------------------------------------------------- #
 # ------------------------------- INPUTS ITERATION -------------------------------------- #
@@ -19,17 +29,17 @@ ESTIMATE = True  # Set to True to run the sustainable yield estimation
 
 # Set paths to setup add model files (absolute paths)
 setup_file = r'C:/Users/cmarinriver/Projects/ConfinedLab/setup.xlsx' # Excel file containing model setup parameters
-model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py" 
+model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py"
 
 # Set path to parent dir containing mlibs modules (absolute path)
 mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab"
 
 # Define a general output folder for all results of sustainable yield estimation (absolute path)
-output_folder = r'C:/Users/cmarinriver/Projects/ConfinedLab/par_results/parv_05' # Output folder for each parameter iteration results
+output_folder = r'C:/Users/cmarinriver/Projects/ConfinedLab/par_results/parv_02/sust_yield_results' # Output folder for each parameter iteration results
 
 # Define output directories for all yield iteration runs, for a summary of the yield iterations, and for generated plots (absolute paths)
 iterations_output_dir = os.path.join(output_folder, "yield_iterations")
-summary_dir = os.path.join(iterations_output_dir, "summary_iterations")
+summary_dir = os.path.join(output_folder, "summary_iterations")
 plot_folder = os.path.join(output_folder, "plots")
 
 # Define model workspace name subscript (used to taylor output paths for each yield iteration)
@@ -49,24 +59,18 @@ head_file_name = "head_obs_t.csv"
 input_folder = summary_dir # Takes as input the path to the summary of the yield iterations
 
 # Define start time of pumping, planning horizons and constraints
-planning_horizons = [ 10, 25, 50, 100, 200, 500, 1000] # In years
-pump_start = 7578000 # In model totim units (days) corresponds to year 2000
 constraints = [
     { 'label': "Spring discharge all zones", 'id': "drn_all", 'constrain': "DRN",
     'flow': "NET", 'zone': "ALL", 'threshold_type': "RELATIVE", 'threshold': 0.9,
     'reference': None, 'neighbour_zones': None, 'color' : "Purple" },
 
-    #{ 'label': "River discharge zone 1", 'id': "riv_1", 'constrain': "RIV",
+    # { 'label': "River discharge zone 1", 'id': "riv_1", 'constrain': "RIV",
     #  'flow': "NET", 'zone': 1, 'threshold_type': "RELATIVE", 'threshold': 0.9,
     #  'reference': None, 'neighbour_zones': None, 'color' : "Blue" },
 
-    { 'label': "River discharge zone 3", 'id': "riv_3", 'constrain': "RIV",
-    'flow': "NET", 'zone': 3, 'threshold_type': "RELATIVE", 'threshold': 0.9,
-    'reference': None, 'neighbour_zones': None, 'color' : "lightblue" },
-
-    #{ 'label': "Leakage zone 3", 'id': "leak_3", 'constrain': "LEAKAGE",
-    #'flow': "NET", 'zone': 3, 'threshold_type': "ABSOLUTE", 'threshold': -40,
-    #'reference': None, 'neighbour_zones': [2,4], 'color' : "orange" },
+    # { 'label': "Leakage zone 3", 'id': "leak_3", 'constrain': "LEAKAGE",
+    # 'flow': "NET", 'zone': 3, 'threshold_type': "ABSOLUTE", 'threshold': -40,
+    # 'reference': None, 'neighbour_zones': [2,4], 'color' : "orange" },
 
     { 'label': "Lateral outflow zone 3", 'id': "ghb_3", 'constrain': "GHB",
     'flow': "NET", 'zone': 3, 'threshold_type': "ABSOLUTE", 'threshold': 0,
@@ -78,10 +82,18 @@ constraints = [
 # --------------------------------------------------------------------------------------- #
 
 if ITERATE: 
-    modpump6.iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, 
+    if EFFICIENCY:
+        print("Running efficiency-based pumping rate iteration...")
+        modpump6.iterate_pumping_rate_transient_eff(setup_file, model_file, model_ws_name, model_name, 
                                             iterations_output_dir, summary_dir, 
-                                            model_ws_name, budget_file_name, 
-                                            zonebud_file_name, head_file_name)
+                                            budget_file_name, zonebud_file_name, head_file_name)
+    else:
+        print("Running full-based pumping rate iteration...")
+        modpump6.iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, 
+                                                iterations_output_dir, summary_dir, 
+                                                model_ws_name, budget_file_name, 
+                                                zonebud_file_name, head_file_name)
+    
 
 # --------------------------------------------------------------------------------------- #
 # -------------------------- SUSTAINABLE YIELD ESTIMATION ------------------------------- #

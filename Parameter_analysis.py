@@ -16,7 +16,9 @@ from mlibs import modpump6 # type: ignore
 # ------------------------------- RUN CONTROL ------------------------------------------- #
 # --------------------------------------------------------------------------------------- #
 
-ITERATE = False  # Set to True to run the iteration process
+ITERATE = True  # Set to True to run the iteration process
+EFFICIENCY = False  # Set to True to run the efficiency-based iteration process 
+
 PLOT = True  # Set to True to plot the results after all iterations
 
 # --------------------------------------------------------------------------------------- #
@@ -24,6 +26,7 @@ PLOT = True  # Set to True to plot the results after all iterations
 # --------------------------------------------------------------------------------------- #
 
 # Set paths to setup add model files (absolute paths)
+model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py" # Absolute paths
 setup_file = "C:/Users/cmarinriver/Projects/ConfinedLab/setup.xlsx" # Absolute paths
 sust_yield_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Sustainable_yield.py" # Absolute paths
 
@@ -95,7 +98,7 @@ if ITERATE:
                 lines[i] = f"setup_file = r'{setup_file}' # Excel file containing model setup parameters\n"
                 setup_replaced = True
             if not output_folder_repaced and line.strip().startswith("output_folder ="):
-                lines[i] = f"output_folder = r'{output_folder}/{col}' # Output folder for each parameter iteration results\n"
+                lines[i] = f"output_folder = r'{output_folder}/{col}/sust_yield_results' # Output folder for each parameter iteration results\n"
                 output_folder_repaced = True
 
         # Save back the modified file
@@ -114,6 +117,10 @@ if ITERATE:
         # Copy the iteration script into the unique model workspace folder and get the path
         shutil.copy(new_file_path, model_ws)
         script_path = os.path.join(model_ws, new_filename)
+        
+        if EFFICIENCY:
+            shutil.copy(setup_file, model_ws)  # Copy the setup file (used if efficiency iteration is active)
+            shutil.copy(model_file, model_ws)  # Copy the original model file (used if efficiency iteration is active)
         
         # Run the script inside the unique model workspace folder
         # You can use subprocess to execute the script in that directory
@@ -134,7 +141,7 @@ if PLOT:
 
     # Collect all results in a single pass
     for subfolder in sorted(os.listdir(output_folder)):
-        subfolder_path = os.path.join(output_folder, subfolder)
+        subfolder_path = os.path.join(output_folder, subfolder, "sust_yield_results")
         csv_file = os.path.join(subfolder_path, "sustainable_yield_summary.csv")
 
         if not (os.path.isdir(subfolder_path) and os.path.exists(csv_file)):

@@ -65,15 +65,15 @@ river_shapefile = False # If True, extracts river cells from shapefile
 
 heterogeneity = False # If True, generates random hydraulic conductivity fields
 
-STEADY = True # Runs the steady state model
-plot_steady = True # Plots steady state outputs
+STEADY = False # Runs the steady state model
+plot_steady = False # Plots steady state outputs
 iterate = False # Iterates pumping rates over steady state model
 
 TRANSIENT = True # Runs the transient model
 plot_transient = True # Plots transient outputs
 animate = False # Animates transient cross sections
 
-plot_maps = False # If True, plots map views of heads and flows
+plot_maps = False # If True, plots map views of heads and flows (just works when model is 3D or 2D Horizontal)
 
 if rivers:
     boundary_keywords = ["GHB", "WEL", "RIV"]
@@ -90,8 +90,11 @@ model_name = 'DEESAC'
 model_name_tr = 'DEESACt'
 output_folder = f"{model_ws}/output"
 figure_folder = f"{model_ws}/fig"
+gis_folder = "C:/Users/cmarinriver/Projects/ConfinedLab/gis" 
+
 os.makedirs(output_folder, exist_ok=True)
 os.makedirs(figure_folder, exist_ok=True)
+os.makedirs(gis_folder, exist_ok=True)
 
 setup_file = "setup.xlsx" # Excel file containing model setup parameters
 
@@ -129,6 +132,7 @@ outcrop_zmax = geom_df["outcrop_zmax"].to_numpy() # Elevation (Just used when SL
 outcrop_zmin = geom_df["outcrop_zmin"].to_numpy() # Elevation (Just used when SLOPE are set to True)
 base_thicknesses = geom_df["base_thicknesses"].to_numpy() # Layer thickness in meters
 outcrop_cells = geom_df["outcrop_cells"].to_numpy() # Cell ID where the unit starts outcropping (measured from left to right)
+zones = geom_df["zone"].to_numpy() # Zone ID for each layer
 
 # Create idomain, irch and recharge arrays
 epsilon = float(geom_df["epsilon"].iloc[0]) # Minimum allowed cell thickness in meters
@@ -145,11 +149,10 @@ idomain = modgeom6.idomain_from_thickness(thickness_array, epsilon)
 ztop_array = modgeom6.compute_ztop_array(ztop, zbot)
 irch = modgeom6.compute_irch(idomain)
 R_array = modgeom6.compute_recharge(irch, R)
-zone_array = np.zeros((nlay, nrow, ncol), dtype=int) # Create zones array for zone budget
-for i in range(nlay):
-    zone_array[i, :, :] = i + 1
+zone_array = modgeom6.compute_3Darray(zones, idomain, dtype = int)
 kh_array = modgeom6.compute_3Darray(kh, idomain)
 kv_array = modgeom6.compute_3Darray(kv, idomain)
+
 # ------------------------------------------------------------------------------- #
 # ----------------------- RANDOM PARAMETER FIELDS ------------------------------- #
 # ------------------------------------------------------------------------------- #
@@ -211,6 +214,9 @@ R_array = modgeom6.compute_recharge(irch, R)
 # ------------------------------------------------------------------------------- #
 # --------------------------- BUILDING SIMULATION ------------------------------- #
 # ------------------------------------------------------------------------------- #
+
+#Save zone_array
+np.save(f"{model_ws}/zone_array.npy", zone_array)
 
 # Create the flopy simulation object
 sim = flopy.mf6.MFSimulation(sim_name = model_name, 
@@ -288,8 +294,8 @@ oc = flopy.mf6.ModflowGwfoc(
 if rivers:
     #River package
     if river_shapefile: 
-        modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp="gis/grid_topview.shp", crs="EPSG:4326")
-        riv_cells = modbound6.active_cells_from_line("gis/grid_topview.shp", "gis/river.shp")
+        modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp=f"{gis_folder}/grid_topview.shp", crs="EPSG:4326")
+        riv_cells = modbound6.active_cells_from_line(f"{gis_folder}/grid_topview.shp", f"{gis_folder}/river.shp")
     else:
         riv_cells = modbound6.extract_active_cells_range(irch, idomain, nrow//2, nrow//2, 0, ncol-2)
     riv_spd = modbound6.create_riv_spd(
@@ -367,7 +373,7 @@ wel = flopy.mf6.ModflowGwfwel(gwf,
 ghb_1 = ztop_array[0,0,ncol-1] # Head in the GHB
 ghb_spd1 = {}
 ghb_spd1[0] = [
-    ((ilay, irow, ncol-1), ghb_1, kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
+    ((ilay, irow, ncol-1), ghb_1, 10 * kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
     for ilay in range(nlay)
     for irow in range(nrow)]
 
@@ -649,7 +655,7 @@ if TRANSIENT:
     last_q = {well: None for well in well_ids} # Prepare a dict to store the last known q for each well
     
     for t in all_times:
-        row = [t]  # start an list with the timestep
+        row = [t]  # start a list with the timestep
         for well in well_ids:
             # Get the row in well_df with this well and time
             matching = well_df[(well_df["well_id"] == well) & (well_df["time"] == t)]
@@ -830,112 +836,113 @@ if TRANSIENT:
 
 
         # ------------------------------------- RESPONSE TIMES ------------------------------------------ #
-        
-        start = 3600000 #start of the step change in model units
-        step = 36000 #Size of the steps in model units
-        n = 20
-        end = start + (step*n)
+        if STEADY:
 
-        for t in range(start, end, step):
-            modtransient6.plot_residual_diffusion(  gwf=gwf,
-                                                    start_time=start,
-                                                    time=t,
-                                                    perioddata=perioddata,
-                                                    nrow=nrow//2,
-                                                    transient_heads=transient_heads,
-                                                    steady_state_heads=steady_state_heads,
-                                                    title=f"Absolute residual difussion in hydraulic heads after {int((t - start)/360)} years",
-                                                    label="Head difference (m)",
-                                                    vmin=0,
-                                                    vmax=None,
-                                                    save=True,
-                                                    output_folder=f"{figure_folder}/Residual_diffusion", 
-                                                    plot_name = f"Residual_diffusion_{t}.png" )
+            start = 3600000 #start of the step change in model units
+            step = 36000 #Size of the steps in model units
+            n = 20
+            end = start + (step*n)
 
-        modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
+            for t in range(start, end, step):
+                modtransient6.plot_residual_diffusion(  gwf=gwf,
+                                                        start_time=start,
+                                                        time=t,
+                                                        perioddata=perioddata,
+                                                        nrow=nrow//2,
+                                                        transient_heads=transient_heads,
+                                                        steady_state_heads=steady_state_heads,
+                                                        title=f"Absolute residual difussion in hydraulic heads after {int((t - start)/360)} years",
+                                                        label="Head difference (m)",
+                                                        vmin=0,
+                                                        vmax=None,
+                                                        save=True,
+                                                        output_folder=f"{figure_folder}/Residual_diffusion", 
+                                                        plot_name = f"Residual_diffusion_{t}.png" )
 
-        start = 3600000 #start of the step change in model units
-        start_time_years = start / 360  # Convert to years assuming 360 days/year
-        start_step = 100 # Corresponding time step index
+            modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
 
-        modtransient6.tr_storage_change_rate_zones(zonebud_file_t, output_folder, figure_folder, 
-                                   show=False, save_csv=True, save_fig=True, 
-                                   figsize=(14, 12), fontsize=14,
-                                   xlim=None, ylim=None, threshold=0.0005, start_time=start_time_years+10)
-        
-        modtransient6.tr_storage_change_rate(zonebud_file_t, output_folder, figure_folder, 
-                                   show=False, save_csv=True, save_fig=True, 
-                                   figsize=(14, 12), fontsize=14,
-                                   xlim=None, ylim=None, threshold=0.0005, start_time=start_time_years+10)
-        
-        modtransient6.response_time_array_relative(
-                                                    gwf,
-                                                    steady_state_heads,
-                                                    transient_heads,
-                                                    times_list,
-                                                    threshold_percent=5,
-                                                    stability_threshold=0.1,
-                                                    array_output_folder=output_folder,
-                                                    fig_output_folder=figure_folder,
-                                                    save_array=True,
-                                                    save_plot=True,
-                                                    show_plot=False,
-                                                    start_step=start_step)
-        
-        modtransient6.response_time_array_absolute(gwf,
-                                                    steady_state_heads,
-                                                    transient_heads,
-                                                    times_list,
-                                                    threshold_absolute=0.02,
-                                                    stability_threshold=0.02,
-                                                    array_output_folder=output_folder,
-                                                    fig_output_folder=figure_folder,
-                                                    save_array=True,
-                                                    save_plot=True,
-                                                    show_plot=False,
-                                                    start_step=start_step)
-        
-        modtransient6.absolute_head_diffusion_zones(transient_heads, steady_state_heads, 
-                                                    times_list, zone_array, 
-                                                    start_step=start_step,
-                                                    threshold_absolute=0.02,
-                                                    stability_threshold=0.02,
-                                                    array_output_folder=output_folder, fig_output_folder=figure_folder,
-                                                    save_fig=True, show_fig=False, 
-                                                    zone_descriptions = {
-                                                    1: "Unconfined Aquifer",
-                                                    2: "Aquitard",
-                                                    3: "Confined Aquifer",
-                                                    4: "Aquitard",
-                                                    5: "Confined Aquifer"}, 
-                                                    bounds="stdev")
-        
-        modtransient6.absolute_head_diffusion(transient_heads, steady_state_heads, times_list,
-                                                start_step=start_step, 
-                                                threshold_absolute=0.02, stability_threshold=0.02,
-                                                fig_output_folder=figure_folder, 
-                                                save_fig=True, show_fig=False, bounds = "stdev")
-        
-        modtransient6.relative_head_diffusion_zones(transient_heads, steady_state_heads, 
-                                                    times_list, zone_array,
+            start = 3600000 #start of the step change in model units
+            start_time_years = start / 360  # Convert to years assuming 360 days/year
+            start_step = 100 # Corresponding time step index
+
+            modtransient6.tr_storage_change_rate_zones(zonebud_file_t, output_folder, figure_folder, 
+                                    show=False, save_csv=True, save_fig=True, 
+                                    figsize=(14, 12), fontsize=14,
+                                    xlim=None, ylim=None, threshold=0.0005, start_time=start_time_years+10)
+            
+            modtransient6.tr_storage_change_rate(zonebud_file_t, output_folder, figure_folder, 
+                                    show=False, save_csv=True, save_fig=True, 
+                                    figsize=(14, 12), fontsize=14,
+                                    xlim=None, ylim=None, threshold=0.0005, start_time=start_time_years+10)
+            
+            modtransient6.response_time_array_relative(
+                                                        gwf,
+                                                        steady_state_heads,
+                                                        transient_heads,
+                                                        times_list,
+                                                        threshold_percent=5,
+                                                        stability_threshold=0.1,
+                                                        array_output_folder=output_folder,
+                                                        fig_output_folder=figure_folder,
+                                                        save_array=True,
+                                                        save_plot=True,
+                                                        show_plot=False,
+                                                        start_step=start_step)
+            
+            modtransient6.response_time_array_absolute(gwf,
+                                                        steady_state_heads,
+                                                        transient_heads,
+                                                        times_list,
+                                                        threshold_absolute=0.02,
+                                                        stability_threshold=0.02,
+                                                        array_output_folder=output_folder,
+                                                        fig_output_folder=figure_folder,
+                                                        save_array=True,
+                                                        save_plot=True,
+                                                        show_plot=False,
+                                                        start_step=start_step)
+            
+            modtransient6.absolute_head_diffusion_zones(transient_heads, steady_state_heads, 
+                                                        times_list, zone_array, 
+                                                        start_step=start_step,
+                                                        threshold_absolute=0.02,
+                                                        stability_threshold=0.02,
+                                                        array_output_folder=output_folder, fig_output_folder=figure_folder,
+                                                        save_fig=True, show_fig=False, 
+                                                        zone_descriptions = {
+                                                        1: "Unconfined Aquifer",
+                                                        2: "Aquitard",
+                                                        3: "Confined Aquifer",
+                                                        4: "Aquitard",
+                                                        5: "Confined Aquifer"}, 
+                                                        bounds="stdev")
+            
+            modtransient6.absolute_head_diffusion(transient_heads, steady_state_heads, times_list,
                                                     start_step=start_step, 
-                                                    threshold_percent=5, 
-                                                    stability_threshold=0.1,
-                                                    array_output_folder=output_folder, fig_output_folder=figure_folder,
-                                                    save_fig=True, show_fig=False,
-                                                    zone_descriptions = {
-                                                    1: "Unconfined Aquifer",
-                                                    2: "Aquitard",
-                                                    3: "Confined Aquifer",
-                                                    4: "Aquitard",
-                                                    5: "Confined Aquifer"}, 
-                                                    bounds="stdev")
-        
-        modtransient6.relative_head_diffusion(transient_heads, steady_state_heads, times_list,
-                                                start_step=start_step, 
-                                                threshold_percent=5, stability_threshold=0.1,
-                                                fig_output_folder=figure_folder, 
-                                                save_fig=True, show_fig=False, bounds="stdev")
+                                                    threshold_absolute=0.02, stability_threshold=0.02,
+                                                    fig_output_folder=figure_folder, 
+                                                    save_fig=True, show_fig=False, bounds = "stdev")
+            
+            modtransient6.relative_head_diffusion_zones(transient_heads, steady_state_heads, 
+                                                        times_list, zone_array,
+                                                        start_step=start_step, 
+                                                        threshold_percent=5, 
+                                                        stability_threshold=0.1,
+                                                        array_output_folder=output_folder, fig_output_folder=figure_folder,
+                                                        save_fig=True, show_fig=False,
+                                                        zone_descriptions = {
+                                                        1: "Unconfined Aquifer",
+                                                        2: "Aquitard",
+                                                        3: "Confined Aquifer",
+                                                        4: "Aquitard",
+                                                        5: "Confined Aquifer"}, 
+                                                        bounds="stdev")
+            
+            modtransient6.relative_head_diffusion(transient_heads, steady_state_heads, times_list,
+                                                    start_step=start_step, 
+                                                    threshold_percent=5, stability_threshold=0.1,
+                                                    fig_output_folder=figure_folder, 
+                                                    save_fig=True, show_fig=False, bounds="stdev")
 
         #--------------------------------------- TRANSIENT ANIMATION ---------------------------------------------#
 

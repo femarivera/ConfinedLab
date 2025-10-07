@@ -503,13 +503,14 @@ def compute_ztop_array(ztop, zbot):
     
     return ztop_array
 
-def compute_3Darray(values_1d, idomain):
+def compute_3Darray(values_1d, idomain, dtype=float):
     """
     Expands a 1D array of layer values to a 3D array, assigning each value to active cells in the corresponding layer.
 
     Args:
         values_1d (np.ndarray): 1D array of length nlay, with values for each layer.
         idomain (np.ndarray): 3D array of shape (nlay, nrow, ncol), with 1 for active and 0 for inactive cells.
+        dtype (data-type, optional): Desired data type for the output array. Default is float.
 
     Returns:
         np.ndarray: 3D array of shape (nlay, nrow, ncol), with each active cell in layer i assigned values_1d[i], and np.nan elsewhere.
@@ -531,9 +532,9 @@ def compute_3Darray(values_1d, idomain):
         raise ValueError("Length of values_1d must match number of layers in idomain.")
 
     nlay, nrow, ncol = idomain.shape
-    arr3d = np.full((nlay, nrow, ncol), np.nan, dtype=float)
+    arr3d = np.empty((nlay, nrow, ncol), dtype=dtype)
     for ilay in range(nlay):
-        arr3d[ilay][idomain[ilay] == 1] = values_1d[ilay]
+        arr3d[ilay, :, :] = values_1d[ilay]
     return arr3d
 
 def subdivide_layers(idomain, ztop, zbot, nsub_layers):

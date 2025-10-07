@@ -28,13 +28,14 @@ import flopy
 import os
 import sys
 import imageio
-
+import re
+from pathlib import Path
 import shutil
 import subprocess
 
 # Import local modules
 sys.path.append('..')
-from mlibs import modplot6 # type: ignore
+from mlibs import modplot6, modgeom6 # type: ignore
 
 def simplify_name(name):
     """
@@ -397,12 +398,15 @@ def iterate_pumping_rate_steady(model_ws,
         df_results.to_csv(csv_output_path, index=False)
         print(f"Pumping analysis results saved to {csv_output_path}")
 
-def iterate_model_script(setup_file, model_file, mlibs_path, iterations_output_dir, summary_dir, model_ws_name, 
+def iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, iterations_output_dir, summary_dir, model_ws_name, 
                                    budget_file_name, zonebud_file_name, head_file_name):
     """
     Function to iterate a groundwater model over different pumping rates defined in an Excel setup file
     (on sheet named q_values_tr). For each pumping rate, the model is run in a unique workspace and the 
     relevant output files are copied to a summary directory.
+
+    This is useful for small models that do not have large inout or output files. For larger models, use
+    the function iterate_pumping_rate_transient_eff.
 
     Args:
         setup_file (str): Path to the Excel setup file containing well and pumping rate information.
@@ -628,7 +632,7 @@ def estimate_sustainable_yield(
 
     # --- loop over files ---
     for file_name in os.listdir(input_folder):
-        if not (file_name.startswith("zonebud_it") and file_name.endswith(".csv")):
+        if not (file_name.startswith("zonebud") and file_name.endswith(".csv")):
             continue
 
         file_path = os.path.join(input_folder, file_name)
@@ -804,68 +808,153 @@ def estimate_sustainable_yield(
 
     return qs_value, df
 
-def iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, iterations_output_dir, summary_dir, model_ws_name, 
-                                   budget_file_name, zonebud_file_name, head_file_name):
+def update_well_ts_file(base_ts_path, setup_file, q_column, output_path):
+    """
+    Update a Flopy-style .ts file with new pumping rates from a given q_column in Excel.
+
+    Parameters
+    ----------
+    base_ts_path : str or Path
+        Path to the existing .ts file (template).
+    setup_file : str or Path
+        Path to the Excel file containing 'well_id', 'time', and q_column.
+    q_column : str
+        Name of the column in Excel to use for pumping rates (e.g., 'qv_01').
+    output_path : str or Path
+        Path to save the new .ts file.
+    """
+    # Read Excel data
+    q_df = pd.read_excel(setup_file, sheet_name="q_values_tr")
+
+    # Read the base .ts file
+    with open(base_ts_path, "r") as f:
+        lines = f.readlines()
+
+    # Locate timeseries block
+    start_idx = next(i for i, l in enumerate(lines) if "BEGIN timeseries" in l)
+    end_idx = next(i for i, l in enumerate(lines) if "END timeseries" in l)
+
+    # Extract well names (order matters)
+    name_line = next(l for l in lines if l.strip().startswith("NAMES"))
+    well_names = name_line.strip().split()[1:]  # skip 'NAMES'
+
+    # Extract times from the existing file
+    ts_lines = lines[start_idx + 1:end_idx]
+    times = [float(re.split(r"\s+", l.strip())[0]) for l in ts_lines]
+
+    # Initialize last known q for each well
+    last_q = {well: 0.0 for well in well_names}
+
+    # Build new timeseries lines
+    new_ts_lines = []
+    for t in times:
+        row = [f"{t:.8E}"]
+        for well in well_names:
+            match = q_df[(q_df["well_id"] == well) & (q_df["time"] == t)]
+            if not match.empty:
+                q_val = float(match[q_column].iloc[0])
+                last_q[well] = q_val
+            else:
+                q_val = last_q[well]
+            row.append(f"{q_val:14.8f}")
+        new_ts_lines.append(" ".join(row) + "\n")
+
+    # Replace timeseries block
+    new_lines = lines[:start_idx+1] + new_ts_lines + lines[end_idx:]
+
+    # Write new file
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        f.writelines(new_lines)
+
+    print(f"Updated .ts file saved at: {output_path}")
+
+def update_oc_file(base_oc_path, new_output_prefix, output_path):
+    """
+    Update output folder paths in a MODFLOW 6 .oc file.
+
+    Parameters
+    ----------
+    base_oc_path : str or Path
+        Path to the existing .oc file.
+    new_output_prefix : str
+        New folder or prefix to replace the old path before filenames, e.g. "output/scenario1/".
+    output_path : str or Path
+        Path to save the updated .oc file.
+    """
+    # Read the OC file
+    with open(base_oc_path, "r") as f:
+        lines = f.readlines()
+
+    # Ensure the prefix ends with '/'
+    if not new_output_prefix.endswith("/"):
+        new_output_prefix += "/"
+
+    # Get pattern: captures lines like "FILEOUT  output/DEESACt.hds"
+    pattern = re.compile(r"(FILEOUT\s+)([\w./\\-]+)")
+
+    new_lines = []
+    for line in lines:
+        match = pattern.search(line)
+        if match:
+            old_path = match.group(2)
+            filename = Path(old_path).name  # get "DEESACt.hds"
+            new_line = pattern.sub(rf"\1{new_output_prefix}{filename}", line)
+            new_lines.append(new_line)
+        else:
+            new_lines.append(line)
+
+    # Write new file
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        f.writelines(new_lines)
+
+    print(f"Updated .oc file saved at: {output_path}")
+
+def iterate_pumping_rate_transient_eff(setup_file, model_file, model_ws_name, model_name, 
+                                        iterations_output_dir, summary_dir, 
+                                        budget_file_name, zonebud_file_name, head_file_name):
     """
     Function to iterate a groundwater model over different pumping rates defined in an Excel setup file
     (on sheet named q_values_tr). For each pumping rate, the model is run in a unique workspace and the 
     relevant output files are copied to a summary directory.
     
-    This version manages memory more efficiently by calling model files from a base workspace of the first model iteration.
-    Subsequent runs do not write model input files again, just update the well files. 
+    This version manages memory more efficiently by calling model files from a base workspace of the first 
+    model iteration. Subsequent runs do not write model input files again, just update the well and output
+    control files. It does not postprocess on the go, useful for large model files.
 
     Args:
         setup_file (str): Path to the Excel setup file containing well and pumping rate information.
-        model_file (str): Path to the groundwater model Python script.
+        model_file (str): Path to the transient groundwater model Python script.
+        model_ws_base (str): Path to the base model workspace directory to write input model files.
+        model_name (str): Name of the groundwater model.
         mlibs_path (str): Path to the directory containing local modules.
         iterations_output_dir (str): Directory where output files from model iterations will be saved.
         summary_dir (str): Directory where summary of results will be saved.
-        model_ws_name (str): Base name for the model workspace directories.
         budget_file_name (str): Name of the budget output file generated by the model.
         zonebud_file_name (str): Name of the zone budget output file generated by the model.
         head_file_name (str): Name of the head observation output file generated by the model.
     """
+    os.makedirs(model_ws_name, exist_ok=True)
     os.makedirs(iterations_output_dir, exist_ok=True)
 
     # --------------------------------------------------------------------------------------- #
-    # ------------------------------- PREPARE ITERATION FILE -------------------------------- #
+    # ------------------------------- WRITE MODEL INPUT FILES ------------------------------- #
     # --------------------------------------------------------------------------------------- #
-    folder, filename = os.path.split(model_file)
-    name, ext = os.path.splitext(filename)
-    new_filename = f"{name}_it{ext}"
-    new_file_path = os.path.join(folder, new_filename)
-
-    # Copy the original file
-    shutil.copy(model_file, new_file_path)
-
-    # Read and modify the new file with placeholders
-    with open(new_file_path, "r") as f:
-        lines = f.readlines()
-
-    setup_replaced = False
-    for i, line in enumerate(lines):
-        if "sys.path.append('..')" in line:
-            lines[i] = f"sys.path.append(r'{mlibs_path}')\n"
-        if not setup_replaced and line.strip().startswith("setup_file ="):
-            lines[i] = f"setup_file = r'{setup_file}' # Excel file containing model setup parameters\n"
-            setup_replaced = True
-
-    # Save back the modified file
-    with open(new_file_path, "w") as f:
-        f.writelines(lines)
-    print("Iteration script created at:", new_file_path)
+    # Run the original script inside the base model workspace folder to write input files
+    # You can use subprocess to execute the script in that directory
+    subprocess.run(["python", model_file])
+    print(f"Base model input files written in model working directory")
+    # Define zone array for zonal budget calculations
+    zone_array = np.load(f"{model_ws_name}/zone_array.npy")
 
     # --------------------------------------------------------------------------------------- #
-    # ------------------------------- UPDATE AND RUN MODEL ---------------------------------- #
+    # ------------------------------- UPDATE WELL MODEL FILES ------------------------------- #
     # --------------------------------------------------------------------------------------- #
-
-    # Load setup
-    # file contining the pumping rates used by modflow6
-    well_df = pd.read_excel(setup_file, sheet_name="wells")
-
     # q-values for each iteration
-    q_df = pd.read_excel(setup_file, sheet_name="q_values_tr")       
-
+    q_df = pd.read_excel(setup_file, sheet_name="q_values_tr")
     # Identify iteration columns (all except well_id + time)
     iter_cols = [c for c in q_df.columns if c not in ["well_id", "time", "comment"]]
     n_iterations = len(iter_cols)
@@ -873,50 +962,22 @@ def iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, iteration
     for i, col in enumerate(iter_cols, start=1):
 
         print(f"\n--- Running iteration {i}/{n_iterations} with {col} ---")
+        os.makedirs(f"{iterations_output_dir}/{col}", exist_ok=True)
 
-        # ------------------------------------------------------------------------------------- #
-        # -------------------------------- PREPARE SETUP FILE --------------------------------- #
-        # ------------------------------------------------------------------------------------- #
+        update_well_ts_file(f"{model_ws_name}/well_rates.ts", f"{setup_file}", f"{col}", f"{model_ws_name}/well_rates.ts")
+        update_oc_file(f"{model_ws_name}/{model_name}.oc", f"../sust_yield_results/yield_iterations/{col}/", f"{model_ws_name}/{model_name}.oc")
+        # Everything in the oc file is relative to the model_ws, so "../" goes to the parent folder
+        sim = flopy.mf6.MFSimulation.load(sim_ws=model_ws_name, exe_name="mf6")
+        subprocess.run(["mf6"], cwd=model_ws_name)
 
-        # Merge well_df with the selected q column
-        merged = well_df.drop(columns=["q"]).merge(
-            q_df[["well_id", "time", col]],
-            on=["well_id", "time"],
-            how="left")
-        
-        # Rename current iteration q value column to "q"
-        merged = merged.rename(columns={col: "q"})
+        gwf = sim.gwf[0]
 
-        # Write updated wells sheet back to Excel (overwrite only that sheet)
-        with pd.ExcelWriter(setup_file, mode="a", if_sheet_exists="replace") as writer:
-            merged.to_excel(writer, sheet_name="wells", index=False)
+        zonebud = gwf.output.zonebudget(zone_array)
+        zonebud.change_model_ws(f"{iterations_output_dir}/{col}")
+        zonebud.write_input()
+        zonebud.run_model()
 
-        # --- Run your model here ---
-        # run_model(setup_file)
-
-        # --- Optionally, save results tagged by iteration ---
-        # save_results(iteration=i)
-
-        # --------------------------------------------------------------------------------------- #
-        # ------------------------------- ITERATE MODEL ----------------------------------------- #
-        # --------------------------------------------------------------------------------------- #
-
-        # Create a unique model workspace directory name based on the parameter value
-        model_ws = os.path.join(iterations_output_dir, f"{model_ws_name}_it_{col}")
-        
-        # Create the directory for model_ws if it doesn't exist
-        os.makedirs(model_ws, exist_ok=True)
-        
-        # Copy the iteration script into the unique model workspace folder and get the path
-        shutil.copy(new_file_path, model_ws)
-        script_path = os.path.join(model_ws, new_filename)
-        
-        # Run the script inside the unique model workspace folder
-        # You can use subprocess to execute the script in that directory
-        subprocess.run(["python", script_path], cwd=model_ws)
-
-        print(f"Model run completed for iteration {i} with q={col}, model_ws={model_ws}")
-
+        print(f"Model run completed for iteration {i} with q={col}")
 
     # --------------------------------------------------------------------------------------- #
     # ------------------------------- MANAGE OUTPUT FILES ----------------------------------- #
@@ -928,20 +989,17 @@ def iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, iteration
 
     # Loop through the sub-folders in the output directory to get relevant files
     for folder_name in os.listdir(iterations_output_dir):
-        # Check if the folder matches the pattern "model_ws_name_it_xxxx"
-        if folder_name.startswith(f"{model_ws_name}_it_"):
             folder_path = os.path.join(iterations_output_dir, folder_name)
-            mf_path = os.path.join(folder_path, model_ws_name, "output")
 
             # Only proceed if the unique model workspace subfolder exists
-            if os.path.exists(mf_path):
+            if os.path.exists(folder_path):
                 # Extract the "parameter_xxxx" part from the folder name
-                code = folder_name.split(f"{model_ws_name}_")[1]
+                code = folder_name
 
                 # Define the source files
-                budget_file = os.path.join(mf_path, budget_file_name)
-                zonebud_file = os.path.join(mf_path, zonebud_file_name)
-                head_obs_file = os.path.join(mf_path, head_file_name)
+                budget_file = os.path.join(folder_path, budget_file_name)
+                zonebud_file = os.path.join(folder_path, zonebud_file_name)
+                head_obs_file = os.path.join(folder_path, head_file_name)
 
                 # Define the destination files
                 budget_dest = os.path.join(results_folder, f"{os.path.splitext(budget_file_name)[0]}_{code}.csv")

@@ -32,13 +32,13 @@ import imageio
 
 
 def plot_map_view(gwf, 
-                  head, 
-                  qx, 
-                  qy, 
+                  head,  
                   output_path, 
                   boundary_keywords=None, 
                   layer=0, 
-                  flow_dir=False, 
+                  flow_dir=False,
+                  qx=None, 
+                  qy=None, 
                   contours=False,
                   show=False, 
                   save=False,
@@ -52,11 +52,11 @@ def plot_map_view(gwf,
     Args:
         gwf (flopy.mf6.ModflowGwf): Groundwater flow model object.
         head (numpy.ndarray): Head array for the model.
-        qx, qy (numpy.ndarray): Flow vectors in x and y directions.
         output_path (str): File path to save the plot.
         boundary_keywords (list of str): Keywords for boundary condition columns to include.
         layer (int): Model layer to plot.
         flow_dir (bool): Whether to plot flow vectors.
+        qx, qy (numpy.ndarray): Flow vectors in x and y directions. Just used if flow_dir is True.
         contours (bool): Whether to plot contours.
         show (bool): Whether to display the plot.
         save (bool): Whether to save the plot to file.
@@ -72,8 +72,6 @@ def plot_map_view(gwf,
         raise ValueError("gwf (MODFLOW 6 model object) must be provided.")
     if head is None:
         raise ValueError("head array must be provided.")
-    if qx is None or qy is None:
-        raise ValueError("qx and qy (flow vectors) must be provided.")
     if not isinstance(output_path, str) or not output_path:
         raise ValueError("output_path must be a non-empty string.")
     if boundary_keywords is not None and not isinstance(boundary_keywords, list):
@@ -168,18 +166,19 @@ def plot_map_view(gwf,
 
 def plot_cross_section_row(gwf, 
                            head,
-                           qx,
-                           qy,
-                           qz,
                            row, 
                            output_path, 
                            boundary_keywords=None, 
-                           flow_dir=False, 
+                           flow_dir=False,
+                           qx=None,
+                           qy=None,
+                           qz=None, 
                            surface=False,
                            layers=False, 
                            show=False, 
                            save=False, 
                            ax=None,
+                           ve=10,
                            figsize=(19, 6),
                            fontsize=14, 
                            title="Cross section"):
@@ -189,11 +188,11 @@ def plot_cross_section_row(gwf,
     Args:
         gwf (flopy.mf6.ModflowGwf): Groundwater flow model object.
         head (np.ndarray): Head array for the model (or any other array to plot).
-        qx, qy, qz (np.ndarray): Flow vectors in x, y, and z directions.
         row (int): Row number for the cross-section.
         output_path (str): File path to save the plot.
         boundary_keywords (list of str, optional): Keywords for boundary condition columns to include.
         flow_dir (bool, optional): Whether to include flow direction vectors.
+        qx, qy, qz (np.ndarray): Flow vectors in x, y, and z directions. Just used if flow_dir is True.
         surface (bool, optional): Whether to include the surface head plot.
         layers (bool, optional): Whether to include layer legend.
         show (bool, optional): Whether to display the plot.
@@ -212,8 +211,6 @@ def plot_cross_section_row(gwf,
         raise ValueError("gwf (MODFLOW 6 model object) must be provided.")
     if head is None:
         raise ValueError("head array must be provided.")
-    if qx is None or qy is None or qz is None:
-        raise ValueError("qx, qy, and qz (flow vectors) must be provided.")
     if not isinstance(row, int) or row < 0:
         raise ValueError("row must be a non-negative integer.")
     if not isinstance(output_path, str) or not output_path:
@@ -270,7 +267,7 @@ def plot_cross_section_row(gwf,
     )
 
     # Plot the array
-    pa = section.plot_array(masked_head, head=masked_head, vmin=vmin, vmax=vmax)
+    pa = section.plot_array(masked_head, head=None, vmin=vmin, vmax=vmax)
 
     # Plot surface for each layer with a gradient of blues
     if surface:
@@ -314,6 +311,9 @@ def plot_cross_section_row(gwf,
         if layers:
             ax.legend(handles=legend_handles, loc="lower left", title="Layers", fontsize=fontsize/1.5)
 
+    # Adjust vertical exageration
+    ax.set_aspect(ve)
+
     # Show and save the plot
     plt.ioff()
     if show:
@@ -332,18 +332,19 @@ def plot_cross_section_row(gwf,
 
 def plot_cross_section_col(gwf, 
                            head, 
-                           qx, 
-                           qy, 
-                           qz, 
                            col, 
                            output_path, 
                            boundary_keywords=None, 
                            flow_dir=False, 
+                           qx=None, 
+                           qy=None, 
+                           qz=None, 
                            surface=False, 
                            layers=False,
                            show=False, 
                            save=False, 
                            ax=None,
+                           ve=10,
                            figsize=(19, 6),
                            fontsize=14, 
                            title = "Cross section"):
@@ -353,11 +354,11 @@ def plot_cross_section_col(gwf,
     Args:
         gwf (flopy.mf6.ModflowGwf): Groundwater flow model object.
         head (numpy.ndarray): Head array for the model (or any other array to plot).
-        qx, qy, qz (numpy.ndarray): Flow vectors in x, y, and z directions.
         col (int): Column number for the cross-section.
         output_path (str): File path to save the plot.
         boundary_keywords (list of str, optional): Keywords for boundary condition columns to include.
         flow_dir (bool, optional): Whether to include flow direction vectors.
+        qx, qy, qz (numpy.ndarray): Flow vectors in x, y, and z directions. Just used if flow_dir is True.
         surface (bool, optional): Whether to include the surface head plot.
         layers (bool, optional): Whether to include layer legend.
         show (bool, optional): Whether to display the plot.
@@ -376,8 +377,6 @@ def plot_cross_section_col(gwf,
         raise ValueError("gwf (MODFLOW 6 model object) must be provided.")
     if head is None:
         raise ValueError("head array must be provided.")
-    if qx is None or qy is None or qz is None:
-        raise ValueError("qx, qy, and qz (flow vectors) must be provided.")
     if not isinstance(col, int) or col < 0:
         raise ValueError("col must be a non-negative integer.")
     if not isinstance(output_path, str) or not output_path:
@@ -434,7 +433,7 @@ def plot_cross_section_col(gwf,
     )
 
     # Plot the array
-    pa = section.plot_array(masked_head, head=masked_head, vmin=vmin, vmax=vmax)
+    pa = section.plot_array(masked_head, head=None, vmin=vmin, vmax=vmax)
 
     # Plot surface for each layer with a gradient of blues
     if surface:
@@ -477,6 +476,9 @@ def plot_cross_section_col(gwf,
         legend_handles = [Line2D([0], [0], color=color, lw=2, label=label) for color, label in layer_colors]
         if layers:
             ax.legend(handles=legend_handles, loc="lower left", title="Layers", fontsize=fontsize/1.5)
+
+    # Adjust vertical exageration
+    ax.set_aspect(ve)
 
     # Show and save the plot
     plt.ioff()
@@ -620,7 +622,8 @@ def plot_cross_section_array(gwf,
                              ax=None,
                              figsize=(19, 6),
                              fontsize=14,
-                             array=None, 
+                             array=None,
+                             ve = 100,  
                              title="Cross section",
                              colorbar = True,
                              log=False,
@@ -735,6 +738,9 @@ def plot_cross_section_array(gwf,
             # Plot the boundary condition with the appropriate color
             if bc_color:
                 section.plot_bc(bc, color=bc_color)
+    
+    # Adjust vertical exageration
+    ax.set_aspect(ve)
 
     # Show and save the plot
     plt.ioff()
@@ -751,14 +757,14 @@ def plot_cross_section_array(gwf,
         fig.savefig(output_path, dpi=300)
         plt.close(fig)  
 
-def plot_animation(gwf, heads, 
-                    qx, qy, qz, nrow, 
+def plot_animation(gwf, heads, nrow, 
                     cs_output_folder,
                     gif_output_path,
                     boundary_keywords=None,
                     show=False, save=False, 
-                    flow_dir=True, surface=True, layers=True,
-                    figsize=(19, 4), fontsize=14, 
+                    flow_dir=True, qx=None, qy=None, qz=None,
+                    surface=True, layers=True,
+                    figsize=(19, 4), fontsize=14, ve=10, 
                     gif_start=0, gif_step=1, duration=0.5):
     """
     Plot cross-sections for all time steps in the heads array, save images, and create an animation
@@ -767,7 +773,6 @@ def plot_animation(gwf, heads,
     Args:
         gwf (flopy.mf6.ModflowGwf): Groundwater flow model object.
         heads (np.ndarray): 4D numpy array of heads (time, layer, row, column).
-        qx, qy, qz (np.ndarray): Flow components.
         nrow (int): Row index for cross-section.
         cs_output_folder (str): Directory to save the cross-section images.
         gif_output_path (str): Path to save the generated animation GIF.
@@ -775,6 +780,7 @@ def plot_animation(gwf, heads,
         show (bool, optional): Whether to display the plots.
         save (bool, optional): Whether to save the plots to files.
         flow_dir (bool, optional): Whether to plot flow directions.
+        qx, qy, qz (np.ndarray): Flow components. Just used if flow_dir is True.
         surface (bool, optional): Whether to plot the surface.
         layers (bool, optional): Whether to include layer legend.
         figsize (tuple, optional): Figure size for plots.
@@ -828,10 +834,11 @@ def plot_animation(gwf, heads,
         image_paths.append(output_path)
         
         plot_cross_section_row(
-            gwf, heads[tstep, :, :, :], qx, qy, qz, nrow,
+            gwf, heads[tstep, :, :, :], nrow,
             output_path,
             boundary_keywords=boundary_keywords,
-            flow_dir=flow_dir, surface=surface, layers=layers,
+            flow_dir=flow_dir, qx=qx, qy=qy, qz=qz, 
+            surface=surface, layers=layers, ve=ve,
             show=show, save=save, figsize=figsize, fontsize=fontsize,
             title=f"Cross section - time step : {tstep}"
         )
@@ -881,12 +888,35 @@ def fix_mppth_file(fpth):
     print(f"File '{fpth}' has been corrected for scientific notation issues.")
 
 def animate(folder_path, gif_output_path, duration=250):
+    """
+    Create an animated GIF from a sequence of image files in numeric order.
 
-    image_paths = [os.path.join(folder_path, f) 
-               for f in os.listdir(folder_path)]
+    Parameters
+    ----------
+    folder_path : str
+        Path to the folder containing images.
+    gif_output_path : str
+        Output path for the generated GIF.
+    duration : int, optional
+        Duration per frame in milliseconds (default=250).
+    """
 
-    # Create the GIF animation
-    with imageio.get_writer(gif_output_path, mode='I', duration=duration) as writer:
+    # Get image file paths
+    image_paths = [
+        os.path.join(folder_path, f)
+        for f in os.listdir(folder_path)
+        if f.lower().endswith((".png", ".jpg", ".jpeg"))
+    ]
+
+    # Sort files numerically based on digits in filename
+    def extract_number(filename):
+        match = re.search(r"(\d+)", filename)
+        return int(match.group(1)) if match else -1  # default if no number
+
+    image_paths.sort(key=lambda x: extract_number(os.path.basename(x)))
+
+    # Create the GIF
+    with imageio.get_writer(gif_output_path, mode="I", duration=duration) as writer:
         for image_path in image_paths:
             image = imageio.imread(image_path)
             writer.append_data(image)

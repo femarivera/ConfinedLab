@@ -118,7 +118,8 @@ def iterate_pumping_rate_steady(model_ws,
                                 layers=False,
                                 animate=False,
                                 animation_name = "cross_section_animation_ss.gif",
-                                duration=0.5, 
+                                duration=0.5,
+                                ve=10, 
                                 save_budget = False, 
                                 save_wells = False,
                                 save_csv = False):
@@ -145,6 +146,7 @@ def iterate_pumping_rate_steady(model_ws,
         animate (bool): Whether to create an animation of cross-sections.
         animation_name (str): Name of the output animation file.
         duration (float): Duration (in seconds) for each frame in the animation.
+        ve (int): Vertical exaggeration for cross-section plots.
         save_budget (bool): Whether to save the water budget plot.
         save_wells (bool): Whether to save the water to wells plot.
         save_csv (bool): Whether to save the pumping analysis results to a CSV file.
@@ -232,10 +234,10 @@ def iterate_pumping_rate_steady(model_ws,
             #Plot cross section
             plt.ioff()
             fig, ax = plt.subplots(figsize=(19, 4))
-            modplot6.plot_cross_section_row(gwf, head, qx, qy, qz, row, 
-                                            model_ws,
+            modplot6.plot_cross_section_row(gwf, head, row, model_ws,
                                             boundary_keywords = boundary_keywords,
-                                            flow_dir = False, surface = True, layers=layers,
+                                            flow_dir = False, qx=qx, qy=qy, qz=qz,
+                                            surface = True, layers=layers, ve=ve,
                                             show = False, save = False, ax=ax)
             plt.title(f"Cross-Section for Total Pumping Rate: {abs(sum(q_tuple)):.1f} m³/day")
 

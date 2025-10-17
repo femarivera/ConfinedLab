@@ -596,6 +596,62 @@ def subdivide_array(arr, nsub_layers):
         [np.repeat(arr[[i]], nsub_layers[i], axis=0) for i in range(len(nsub_layers))],
         axis=0)
 
+def compute_unconfined_areas(irch, idomain):
+    """
+    Compute a 3D boolean mask for unconfined (outcropping) areas.
+
+    Parameters
+    ----------
+    irch : 2D numpy array (nrow, ncol)
+        Index of the outcropping layer for each cell.
+    idomain : 3D numpy array (nlay, nrow, ncol)
+        MODFLOW idomain array (1=active, 0=inactive).
+
+    Returns
+    -------
+    unconfined_areas : 3D numpy array (nlay, nrow, ncol)
+        1 where layer is unconfined (outcropping), 0 otherwise.
+    """
+    nlay, nrow, ncol = idomain.shape
+    # Broadcast irch to 3D for comparison
+    irch3d = np.broadcast_to(irch, (nlay, nrow, ncol))
+    layers = np.arange(nlay)[:, None, None]
+    return ((irch3d == layers) & (idomain == 1)).astype(int)
+
+def compute_storage_coefficient(unconfined_areas, Sy, Ss, thickness):
+    """
+    Compute 3D storage coefficient array based on unconfined/confined areas.
+
+    Parameters
+    ----------
+    unconfined_areas : ndarray (nlay, nrow, ncol)
+        1 where cell is unconfined, 0 where confined.
+    Sy : ndarray (nlay,)
+        Specific yield per layer.
+    Ss : ndarray (nlay,)
+        Specific storage per layer.
+    thickness : ndarray (nlay, nrow, ncol)
+        Cell thickness.
+
+    Returns
+    -------
+    storage_coeff : ndarray (nlay, nrow, ncol)
+        Storage coefficient for each cell.
+    """
+    nlay, nrow, ncol = unconfined_areas.shape
+
+    # Broadcast Sy and Ss to 3D
+    Sy3d = Sy[:, None, None]
+    Ss3d = Ss[:, None, None]
+
+    # Compute with vectorized blending
+    storage_coeff = np.where(
+        unconfined_areas == 1,
+        Sy3d,
+        Ss3d * thickness
+    )
+
+    return storage_coeff
 
 # ==========================================================================================
 # ==========================================================================================

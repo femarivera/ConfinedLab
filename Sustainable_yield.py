@@ -75,6 +75,20 @@ constraints = [
     { 'label': "Lateral outflow zone 3", 'id': "ghb_3", 'constrain': "GHB",
     'flow': "NET", 'zone': 3, 'threshold_type': "ABSOLUTE", 'threshold': 0,
     'reference': None, 'neighbour_zones': None, 'color' : "red" },
+
+    {
+    "label": "Head at pumping well",
+    "id": "head_aqf",
+    "constrain": "HEAD",
+    "flow": "NET",              # ignored for HEAD
+    "zone": "ALL",              # ignored for HEAD
+    "threshold_type": "RELATIVE",
+    "threshold": 0.9,
+    "reference": None,
+    "neighbour_zones": None,    # ignored for HEAD
+    "color": "orange",
+    "head_obs": "UNCAQ"         # REQUIRED for HEAD
+    }
     ]
 
 # --------------------------------------------------------------------------------------- #

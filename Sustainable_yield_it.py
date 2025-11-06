@@ -35,7 +35,7 @@ model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py"
 mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab"
 
 # Define a general output folder for all results of sustainable yield estimation (absolute path)
-output_folder = r'C:/Users/cmarinriver/Projects/ConfinedLab/par_results/parv_00/sust_yield_results' # Output folder for each parameter iteration results
+output_folder = r'C:/Users/cmarinriver/Projects/ConfinedLab/par_results/parv_03/sust_yield_results' # Output folder for each parameter iteration results
 
 # Define output directories for all yield iteration runs, for a summary of the yield iterations, and for generated plots (absolute paths)
 iterations_output_dir = os.path.join(output_folder, "yield_iterations")
@@ -60,9 +60,18 @@ input_folder = summary_dir # Takes as input the path to the summary of the yield
 
 # Define start time of pumping, planning horizons and constraints
 constraints = [
-    { 'label': "Spring discharge all zones", 'id': "drn_all", 'constrain': "DRN",
-    'flow': "NET", 'zone': "ALL", 'threshold_type': "RELATIVE", 'threshold': 0.9,
-    'reference': None, 'neighbour_zones': None, 'color' : "Purple" },
+    { 
+    'label': "Spring discharge all zones", 
+    'id': "drn_all", 
+    'constrain': "DRN",
+    'flow': "NET", 
+    'zone': "ALL", 
+    'threshold_type': "RELATIVE", 
+    'threshold': 0.9,
+    'reference': None, 
+    'neighbour_zones': None, 
+    'color' : "Purple" 
+    },
 
     # { 'label': "River discharge zone 1", 'id': "riv_1", 'constrain': "RIV",
     #  'flow': "NET", 'zone': 1, 'threshold_type': "RELATIVE", 'threshold': 0.9,
@@ -72,9 +81,18 @@ constraints = [
     # 'flow': "NET", 'zone': 3, 'threshold_type': "ABSOLUTE", 'threshold': -40,
     # 'reference': None, 'neighbour_zones': [2,4], 'color' : "orange" },
 
-    { 'label': "Lateral outflow zone 3", 'id': "ghb_3", 'constrain': "GHB",
-    'flow': "NET", 'zone': 3, 'threshold_type': "ABSOLUTE", 'threshold': 0,
-    'reference': None, 'neighbour_zones': None, 'color' : "red" },
+    { 
+    'label': "Lateral outflow zone 3",
+    'id': "ghb_3", 
+    'constrain': "GHB",
+    'flow': "NET", 
+    'zone': 3, 
+    'threshold_type': "ABSOLUTE", 
+    'threshold': 0,
+    'reference': None, 
+    'neighbour_zones': None, 
+    'color' : "red" 
+    },
 
     {
     "label": "Head at pumping well",
@@ -82,13 +100,13 @@ constraints = [
     "constrain": "HEAD",
     "flow": "NET",              # ignored for HEAD
     "zone": "ALL",              # ignored for HEAD
-    "threshold_type": "RELATIVE",
-    "threshold": 0.9,
+    "threshold_type": "ABSOLUTE",
+    "threshold": 0,
     "reference": None,
     "neighbour_zones": None,    # ignored for HEAD
     "color": "orange",
-    "head_obs": "UNCAQ"         # REQUIRED for HEAD
-    }
+    "head_obs": "CAQ 1"         # REQUIRED for HEAD
+}
     ]
 
 # --------------------------------------------------------------------------------------- #

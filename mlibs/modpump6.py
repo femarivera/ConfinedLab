@@ -110,7 +110,8 @@ def iterate_pumping_rate_steady(model_ws,
                                 wel, 
                                 q_values,
                                 q_ref,
-                                budget_csv_file, 
+                                budget_csv_file,
+                                head_path_file,
                                 row, 
                                 figure_dir,
                                 csv_output_path, 
@@ -129,6 +130,7 @@ def iterate_pumping_rate_steady(model_ws,
 
     Parameters:
         model_ws (str): Path to the model workspace directory.
+        output_folder (str): Path to the output folder where head and budget files are written.
         sim (flopy.mf6.MFSimulation): The simulation object.
         gwf (flopy.mf6.ModflowGwf): The groundwater flow model object.
         wel_spd (dict): The dictionary containing well stress period data.
@@ -138,6 +140,7 @@ def iterate_pumping_rate_steady(model_ws,
         q_ref (tuple): Reference pumping rate for initial simulation (normally 0 for natural conditions).
                        Length must match number of wells.
         budget_csv_file (str): Path to the CSV file containing budget data.
+        head_path_file (str): Path to the head output file (.hds).
         row (int): Row index for cross-section plotting.
         figure_dir (str): Directory to save figures.
         csv_output_path (str): Path to the CSV output file.
@@ -224,19 +227,13 @@ def iterate_pumping_rate_steady(model_ws,
             # Create directory if it does not exist
             if cross_section_dir and not os.path.exists(cross_section_dir):
                 os.makedirs(cross_section_dir)
-
-            # Load outputs
-            head = gwf.output.head().get_data()
-            bud = gwf.output.budget()
-            spdis = bud.get_data(text='DATA-SPDIS')[0]
-            qx, qy, qz = flopy.utils.postprocessing.get_specific_discharge(spdis, gwf)
             
             #Plot cross section
             plt.ioff()
             fig, ax = plt.subplots(figsize=(19, 4))
-            modplot6.plot_cross_section_row(gwf, head, row, model_ws,
+            modplot6.plot_cross_section_row(gwf, head_path_file, row, model_ws,
                                             boundary_keywords = boundary_keywords,
-                                            flow_dir = False, qx=qx, qy=qy, qz=qz,
+                                            flow_dir = False,
                                             surface = True, layers=layers, ve=ve,
                                             show = False, save = False, ax=ax)
             plt.title(f"Cross-Section for Total Pumping Rate: {abs(sum(q_tuple)):.1f} m³/day")
@@ -497,19 +494,30 @@ def iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, iteration
         # ------------------------------- ITERATE MODEL ----------------------------------------- #
         # --------------------------------------------------------------------------------------- #
 
-        # Create a unique model workspace directory name based on the parameter value
+        # # Create a unique model workspace directory name based on the parameter value
+        # model_ws = os.path.join(iterations_output_dir, f"{model_ws_name}_it_{col}")
+        
+        # # Create the directory for model_ws if it doesn't exist
+        # os.makedirs(model_ws, exist_ok=True)
+        
+        # # Copy the iteration script into the unique model workspace folder and get the path
+        # shutil.copy(new_file_path, model_ws)
+        # script_path = os.path.join(model_ws, new_filename)
+        
+        # # Run the script inside the unique model workspace folder
+        # # You can use subprocess to execute the script in that directory
+        # subprocess.run(["python", script_path], cwd=model_ws)
+
+        # print(f"Model run completed for iteration {i} with q={col}, model_ws={model_ws}")
+
         model_ws = os.path.join(iterations_output_dir, f"{model_ws_name}_it_{col}")
-        
-        # Create the directory for model_ws if it doesn't exist
         os.makedirs(model_ws, exist_ok=True)
-        
-        # Copy the iteration script into the unique model workspace folder and get the path
-        shutil.copy(new_file_path, model_ws)
-        script_path = os.path.join(model_ws, new_filename)
-        
-        # Run the script inside the unique model workspace folder
-        # You can use subprocess to execute the script in that directory
-        subprocess.run(["python", script_path], cwd=model_ws)
+
+        # Just run the same iteration script from its original location
+        subprocess.run(
+            ["python", new_file_path],
+            cwd=model_ws
+        )
 
         print(f"Model run completed for iteration {i} with q={col}, model_ws={model_ws}")
 
@@ -1112,7 +1120,6 @@ def estimate_sustainable_yield(
     df.to_csv(os.path.join(output_folder, csv_filename), index=False)
 
     return qs_value, df
-
 
 def update_well_ts_file(base_ts_path, setup_file, q_column, output_path):
     """

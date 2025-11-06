@@ -37,7 +37,7 @@ mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab" # Absolute paths
 output_folder = "C:/Users/cmarinriver/Projects/ConfinedLab/par_results" # Absolute paths
 
 # Define the parameter to analyze (must be in the parameter_analysis sheet of the setup file)
-parameter = "kv_02"
+parameter = "kv_01"
 
 # --------------------------------------------------------------------------------------- #
 # ------------------------------- ITERATE PARAMETERS ------------------------------------ #
@@ -131,7 +131,6 @@ if ITERATE:
 # --------------------------------------------------------------------------------------- #
 # ------------------------------- PLOT RESULTS ------------------------------------------ #
 # --------------------------------------------------------------------------------------- #
-
 
 if PLOT:
     # --- Load parameter mapping once ---

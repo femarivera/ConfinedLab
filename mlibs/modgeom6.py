@@ -653,6 +653,66 @@ def compute_storage_coefficient(unconfined_areas, Sy, Ss, thickness):
 
     return storage_coeff
 
+def insert_soil_layer(ztop, zbot, idomain, soil_thickness=5.0):
+    """
+    Insert a new soil layer over the current model domain.
+
+    The model top (ztop) remains unchanged, and all existing layers
+    are shifted downward by `soil_thickness`.
+
+    Parameters
+    ----------
+    ztop : (nlay, nrow, ncol) array
+        Current model layer elevations.
+    zbot : (nlay, nrow, ncol) array
+        Bottom elevations of each layer (top to bottom order).
+    idomain : (nlay, nrow, ncol) array
+        IDOMAIN array (0=inactive, 1=active, <0=constant-head).
+    soil_thickness : float
+        Thickness of the new top soil layer (positive number).
+
+    Returns
+    -------
+    new_ztop : (nlay, nrow, ncol) array
+        Topography stays the same, the top of all layers are shifted.
+    new_zbot : (nlay+1, nrow, ncol) array
+        Updated bottom elevations with the new top layer inserted.
+    new_idomain : (nlay+1, nrow, ncol) array
+        Updated IDOMAIN array (soil layer active by default).
+    """
+    nlay, nrow, ncol = zbot.shape
+    model_ztop = ztop[0, :, :]  # shape (nrow, ncol)
+
+    # Define new soil layer
+    soil_ztop = model_ztop
+    soil_zbot = soil_ztop  - soil_thickness  # bottom of soil layer
+
+    # Shift all existing layers downward by soil_thickness
+    shifted_ztop = ztop - soil_thickness
+    shifted_zbot = zbot - soil_thickness
+
+    # Stack the new soil layer on top
+    new_ztop = np.vstack((soil_ztop[None, :, :], shifted_ztop))
+    new_zbot = np.vstack((soil_zbot[None, :, :], shifted_zbot))
+    # Add corresponding idomain layer (default = 1)
+    new_idomain = np.vstack((np.ones((1, nrow, ncol), dtype=idomain.dtype), idomain))
+
+    new_nlay = nlay + 1
+
+    return new_ztop, new_zbot, new_idomain, new_nlay
+
+def add_top_value(arr, top_value=None):
+    """Insert top_value (or first value to a 1D layer wise array) after adding a soil model layer."""
+    if top_value is None:
+        top_value = arr[0]
+    return np.insert(arr, 0, top_value, axis=0)
+
+def add_top_layer(arr3d, value=None):
+    """Insert a top layer to a 3D array (nlay, nrow, ncol) after adding a soil model layer."""
+    if value is None:
+        value = arr3d[0, :, :]
+    return np.vstack((value[None, :, :], arr3d))
+
 # ==========================================================================================
 # ==========================================================================================
 #  VARIANT FUNCTIONS - ADVANCED & EXPERIMENTAL SYNTHETIC GEOMETRY GENERATION

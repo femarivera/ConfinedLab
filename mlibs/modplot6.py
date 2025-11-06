@@ -30,38 +30,41 @@ from matplotlib.lines import Line2D
 from matplotlib.colors import LogNorm
 import imageio
 
-
 def plot_map_view(gwf, 
-                  head,  
+                  head_path,  
                   output_path, 
                   boundary_keywords=None, 
                   layer=0, 
                   flow_dir=False,
-                  qx=None, 
-                  qy=None, 
+                  cbb_path=None, 
                   contours=False,
                   show=False, 
                   save=False,
                   grid=True,
                   figsize=(10, 10),
                   fontsize=14,
-                  title="Model map view"):
+                  title="Model map view", 
+                  transient = False,
+                  time_step=0):
     """
     Plots a map view for a MODFLOW 6 groundwater flow model.
 
     Args:
         gwf (flopy.mf6.ModflowGwf): Groundwater flow model object.
-        head (numpy.ndarray): Head array for the model.
+        head_path (string): Path to the steady state head file (.hds)
         output_path (str): File path to save the plot.
         boundary_keywords (list of str): Keywords for boundary condition columns to include.
         layer (int): Model layer to plot.
         flow_dir (bool): Whether to plot flow vectors.
-        qx, qy (numpy.ndarray): Flow vectors in x and y directions. Just used if flow_dir is True.
+        cbb_path (string): Path to the cell budget file (.cbb)
         contours (bool): Whether to plot contours.
         show (bool): Whether to display the plot.
         save (bool): Whether to save the plot to file.
         figsize (tuple): Size of the figure.
         fontsize (int): Font size for plot labels.
+        title (str): Title for the plot.
+        transient (bool): Whether the input is transient or steady state.
+        time_step (int): Time step index to plot for transient data.
 
     Outputs:
         Displays the map view plot and/or saves it to a file.
@@ -70,8 +73,8 @@ def plot_map_view(gwf,
     # Input checks
     if gwf is None:
         raise ValueError("gwf (MODFLOW 6 model object) must be provided.")
-    if head is None:
-        raise ValueError("head array must be provided.")
+    if head_path is None:
+        raise ValueError("Path to head .hds file must be provided.")
     if not isinstance(output_path, str) or not output_path:
         raise ValueError("output_path must be a non-empty string.")
     if boundary_keywords is not None and not isinstance(boundary_keywords, list):
@@ -104,6 +107,15 @@ def plot_map_view(gwf,
 
     # Mask inactive cells
     idomain = gwf.modelgrid.idomain
+
+    hobj = flopy.utils.HeadFile(head_path)
+    if transient:
+        heads = hobj.get_alldata()
+        times_list = hobj.get_times()
+        head = heads[time_step]
+    else:
+        head = hobj.get_data()
+        
     masked_head = np.where(idomain == 0, np.nan, head)
 
     # Initialize the figure and axes
@@ -130,6 +142,16 @@ def plot_map_view(gwf,
 
     # Plot flow vectors
     if flow_dir:
+        if cbb_path is None:
+            raise ValueError("cbb_path must be provided to plot flow directions.")
+        cbb = flopy.utils.CellBudgetFile(cbb_path)
+        if transient:
+            steps = cbb.get_kstpkper()
+            kstpkper = steps[time_step]
+            spdis = cbb.get_data(text='DATA-SPDIS', kstpkper=kstpkper)[0]
+        else:
+            spdis = cbb.get_data(text='DATA-SPDIS')[0]
+        qx, qy, qz = flopy.utils.postprocessing.get_specific_discharge(spdis, gwf)
         modelmap.plot_vector(qx, qy, normalize=True, color="white", headwidth=2, headlength=1, headaxislength=1, scale=60)
 
     # Dynamically plot boundary conditions based on keywords
@@ -165,14 +187,12 @@ def plot_map_view(gwf,
         plt.close(fig)
 
 def plot_cross_section_row(gwf, 
-                           head,
+                           head_path,
                            row, 
                            output_path, 
                            boundary_keywords=None, 
                            flow_dir=False,
-                           qx=None,
-                           qy=None,
-                           qz=None, 
+                           cbb_path=None, 
                            surface=False,
                            layers=False, 
                            show=False, 
@@ -181,26 +201,35 @@ def plot_cross_section_row(gwf,
                            ve=10,
                            figsize=(19, 6),
                            fontsize=14, 
-                           title="Cross section"):
+                           title="Cross section", 
+                           vmin=None,
+                           vmax=None,
+                           transient=False,
+                           time_step=0):
     """
     Plots a cross-section for a MODFLOW 6 groundwater flow model along a specified row.
 
     Args:
         gwf (flopy.mf6.ModflowGwf): Groundwater flow model object.
-        head (np.ndarray): Head array for the model (or any other array to plot).
+        head_path (str): File path to the head file (.hds).
         row (int): Row number for the cross-section.
         output_path (str): File path to save the plot.
         boundary_keywords (list of str, optional): Keywords for boundary condition columns to include.
         flow_dir (bool, optional): Whether to include flow direction vectors.
-        qx, qy, qz (np.ndarray): Flow vectors in x, y, and z directions. Just used if flow_dir is True.
+        cbb_path (str, optional): File path to the cell budget file (.cbb).
         surface (bool, optional): Whether to include the surface head plot.
         layers (bool, optional): Whether to include layer legend.
         show (bool, optional): Whether to display the plot.
         save (bool, optional): Whether to save the plot to file.
         ax (matplotlib.axes.Axes, optional): Matplotlib axis to plot on. If None, a new figure is created.
+        ve (float, optional): Vertical exaggeration factor.
         figsize (tuple, optional): Size of the figure.
         fontsize (int, optional): Font size for plot labels.
         title (str, optional): Title for the plot.
+        vmin (float, optional): Minimum head value for color scaling.
+        vmax (float, optional): Maximum head value for color scaling.
+        transient (bool): Whether the input is transient or steady state.
+        time_step (int): Time step index to plot for transient data.
 
     Outputs:
         Displays the cross-section plot and/or saves it to a file.
@@ -209,8 +238,8 @@ def plot_cross_section_row(gwf,
     # Input checks
     if gwf is None:
         raise ValueError("gwf (MODFLOW 6 model object) must be provided.")
-    if head is None:
-        raise ValueError("head array must be provided.")
+    if head_path is None:
+        raise ValueError("head file path must be provided.")
     if not isinstance(row, int) or row < 0:
         raise ValueError("row must be a non-negative integer.")
     if not isinstance(output_path, str) or not output_path:
@@ -254,10 +283,27 @@ def plot_cross_section_row(gwf,
 
     # Mask inactive cells
     idomain = gwf.modelgrid.idomain
+
+    hobj = flopy.utils.HeadFile(head_path)
+    if transient:
+        heads = hobj.get_alldata()
+        times_list = hobj.get_times()
+        head = heads[time_step]
+    else:
+        head = hobj.get_data()
+    
     masked_head = np.where(idomain == 0, np.nan, head)
 
     # Compute minimum and maximum head values for color scaling
-    vmin, vmax = np.nanmin(masked_head), np.nanmax(masked_head)
+    if vmin:
+        vmin = vmin
+    else:
+        vmin = np.nanmin(masked_head)
+
+    if vmax:
+        vmax = vmax    
+    else:
+        vmax = np.nanmax(masked_head)
 
     # Create the cross-section object
     section = flopy.plot.PlotCrossSection(
@@ -284,7 +330,18 @@ def plot_cross_section_row(gwf,
     section.plot_grid(lw=0.05, color="0")
     
     # Plot flow vectors
+
     if flow_dir:
+        if cbb_path is None:
+            raise ValueError("cbb_path must be provided to plot flow directions.")
+        cbb = flopy.utils.CellBudgetFile(cbb_path)
+        if transient:
+            steps = cbb.get_kstpkper()
+            kstpkper = steps[time_step]
+            spdis = cbb.get_data(text='DATA-SPDIS', kstpkper=kstpkper)[0]
+        else:
+            spdis = cbb.get_data(text='DATA-SPDIS')[0]
+        qx, qy, qz = flopy.utils.postprocessing.get_specific_discharge(spdis, gwf)
         section.plot_vector(qx, qy, qz, normalize=True, color="white", head=masked_head,
                             hstep=int(ncol//50), headwidth=2, headlength=1, headaxislength=1, scale=60)
 
@@ -331,14 +388,12 @@ def plot_cross_section_row(gwf,
         plt.close(fig)  
 
 def plot_cross_section_col(gwf, 
-                           head, 
+                           head_path, 
                            col, 
                            output_path, 
                            boundary_keywords=None, 
                            flow_dir=False, 
-                           qx=None, 
-                           qy=None, 
-                           qz=None, 
+                           cbb_path=None, 
                            surface=False, 
                            layers=False,
                            show=False, 
@@ -347,7 +402,11 @@ def plot_cross_section_col(gwf,
                            ve=10,
                            figsize=(19, 6),
                            fontsize=14, 
-                           title = "Cross section"):
+                           title = "Cross section",
+                           vmin=None,
+                           vmax=None,
+                           transient=False,
+                           time_step=0):
     """
     Plots a cross-section for a MODFLOW 6 groundwater flow model along a specified column.
 
@@ -358,15 +417,20 @@ def plot_cross_section_col(gwf,
         output_path (str): File path to save the plot.
         boundary_keywords (list of str, optional): Keywords for boundary condition columns to include.
         flow_dir (bool, optional): Whether to include flow direction vectors.
-        qx, qy, qz (numpy.ndarray): Flow vectors in x, y, and z directions. Just used if flow_dir is True.
+        cbb_path (str, optional): File path to the cell budget file (.cbb).
         surface (bool, optional): Whether to include the surface head plot.
         layers (bool, optional): Whether to include layer legend.
         show (bool, optional): Whether to display the plot.
         save (bool, optional): Whether to save the plot to file.
         ax (matplotlib.axes.Axes, optional): Matplotlib axis to plot on. If None, a new figure is created.
+        ve (float, optional): Vertical exaggeration factor.
         figsize (tuple, optional): Size of the figure.
         fontsize (int, optional): Font size for plot labels.
         title (str, optional): Title for the plot.
+        vmin (float, optional): Minimum head value for color scaling.
+        vmax (float, optional): Maximum head value for color scaling.
+        transient (bool): Whether the input is transient or steady state.
+        time_step (int): Time step index to plot for transient data.
 
     Outputs:
         Displays the cross-section plot and/or saves it to a file.
@@ -375,8 +439,8 @@ def plot_cross_section_col(gwf,
     # Input checks
     if gwf is None:
         raise ValueError("gwf (MODFLOW 6 model object) must be provided.")
-    if head is None:
-        raise ValueError("head array must be provided.")
+    if head_path is None:
+        raise ValueError("head file path must be provided.")
     if not isinstance(col, int) or col < 0:
         raise ValueError("col must be a non-negative integer.")
     if not isinstance(output_path, str) or not output_path:
@@ -420,10 +484,26 @@ def plot_cross_section_col(gwf,
 
     # Mask inactive cells
     idomain = gwf.modelgrid.idomain
+    hobj = flopy.utils.HeadFile(head_path)
+    if transient:
+        heads = hobj.get_alldata()
+        times_list = hobj.get_times()
+        head = heads[time_step]
+    else:
+        head = hobj.get_data()
+    
     masked_head = np.where(idomain == 0, np.nan, head)
 
     # Compute minimum and maximum head values for color scaling
-    vmin, vmax = np.nanmin(masked_head), np.nanmax(masked_head)
+    if vmin:
+        vmin = vmin
+    else:
+        vmin = np.nanmin(masked_head)
+
+    if vmax:
+        vmax = vmax    
+    else:
+        vmax = np.nanmax(masked_head)
 
     # Create the cross-section object
     section = flopy.plot.PlotCrossSection(
@@ -451,6 +531,16 @@ def plot_cross_section_col(gwf,
 
     # Plot flow vectors
     if flow_dir:
+        if cbb_path is None:
+            raise ValueError("cbb_path must be provided to plot flow directions.")
+        cbb = flopy.utils.CellBudgetFile(cbb_path)
+        if transient:
+            steps = cbb.get_kstpkper()
+            kstpkper = steps[time_step]
+            spdis = cbb.get_data(text='DATA-SPDIS', kstpkper=kstpkper)[0]
+        else:
+            spdis = cbb.get_data(text='DATA-SPDIS')[0]
+        qx, qy, qz = flopy.utils.postprocessing.get_specific_discharge(spdis, gwf)
         section.plot_vector(qx, qy, qz, normalize=True, color="white", head=masked_head, 
                             hstep=int(nrow//50), headwidth=2, headlength=1, headaxislength=1, scale=60)
         
@@ -757,7 +847,7 @@ def plot_cross_section_array(gwf,
         fig.savefig(output_path, dpi=300)
         plt.close(fig)  
 
-def plot_animation(gwf, heads, nrow, 
+def plot_animation(gwf, heads, nrow, times, 
                     cs_output_folder,
                     gif_output_path,
                     boundary_keywords=None,
@@ -765,7 +855,7 @@ def plot_animation(gwf, heads, nrow,
                     flow_dir=True, qx=None, qy=None, qz=None,
                     surface=True, layers=True,
                     figsize=(19, 4), fontsize=14, ve=10, 
-                    gif_start=0, gif_step=1, duration=0.5):
+                    gif_start=0, gif_step=1, duration=0.5, vmin=None, vmax=None):
     """
     Plot cross-sections for all time steps in the heads array, save images, and create an animation
     of a transient simulation.
@@ -774,6 +864,7 @@ def plot_animation(gwf, heads, nrow,
         gwf (flopy.mf6.ModflowGwf): Groundwater flow model object.
         heads (np.ndarray): 4D numpy array of heads (time, layer, row, column).
         nrow (int): Row index for cross-section.
+        times: time list obtained from the head object
         cs_output_folder (str): Directory to save the cross-section images.
         gif_output_path (str): Path to save the generated animation GIF.
         boundary_keywords (list of str, optional): List of boundary conditions keywords.
@@ -828,6 +919,7 @@ def plot_animation(gwf, heads, nrow,
 
     num_timesteps = heads.shape[0]  # Number of time steps
     image_paths = []
+    times_list = times
 
     for tstep in range(gif_start, num_timesteps, gif_step):
         output_path = os.path.join(cs_output_folder, f"cross_section_heads_{tstep}.png")
@@ -840,8 +932,8 @@ def plot_animation(gwf, heads, nrow,
             flow_dir=flow_dir, qx=qx, qy=qy, qz=qz, 
             surface=surface, layers=layers, ve=ve,
             show=show, save=save, figsize=figsize, fontsize=fontsize,
-            title=f"Cross section - time step : {tstep}"
-        )
+            title=f"Hydraulic heads after {int((times_list[tstep] - times_list[gif_start])/360)} years",
+            vmin=vmin, vmax=vmax)
         
         print(f"Saved cross-section plot for time step {tstep} at {output_path}")
 

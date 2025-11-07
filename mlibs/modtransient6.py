@@ -18,8 +18,6 @@
 #  - Computes the proportions of water flow to wells from storage release and capture rates.
 #  - If zones are defined, plots and analyses water budgets for each zone.
 
-from textwrap import fill
-from fiona import bounds
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np

@@ -17,7 +17,7 @@ from mlibs import modpump6 # type: ignore
 # --------------------------------------------------------------------------------------- #
 
 ITERATE = True  # Set to True to run the iteration process
-EFFICIENCY = True  # Set to True to run the efficiency-based iteration process 
+EFFICIENCY = False  # Set to True to run the efficiency-based iteration process 
 
 PLOT = True  # Set to True to plot the results after all iterations
 

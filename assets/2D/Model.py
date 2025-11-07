@@ -72,11 +72,11 @@ iterate = False # Iterates pumping rates over steady state model (Used when STEA
 
 TRANSIENT = True # Runs the transient simulation
 post_transient = True # Postprocess transient outputs
-response_times = True # Estimates response times (Used when TRANSIENT AND post_transient are True)
+response_times = False # Estimates response times (Used when TRANSIENT AND post_transient are True)
 
 animate = False # Animates transient cross sections (Used when TRANSIENT AND post_transient are True)
 
-plot_maps = True # If True, plots map views of heads and flows (just works when model is 3D or 2D Horizontal)
+plot_maps = False # If True, plots map views of heads and flows (just works when model is 3D or 2D Horizontal)
 
 heterogeneity = False # If True, generates random hydraulic conductivity fields
 
@@ -341,8 +341,8 @@ oc = flopy.mf6.ModflowGwfoc(
     head_filerecord = f"output/{model_name}.hds",
     budget_filerecord = f"output/{model_name}.cbb",
     budgetcsv_filerecord = f"output/{model_name}_budget.csv",
-    saverecord = [("HEAD", "ALL"), ("BUDGET", "LAST")],
-    printrecord = [("HEAD", "ALL"),("BUDGET", "LAST")], 
+    saverecord = [("HEAD", "ALL"), ("BUDGET", "ALL")],
+    printrecord = [("HEAD", "LAST"),("BUDGET", "LAST")], 
     filename = f"{model_name}.oc")
 
 # --------------------------- BOUNDARY CONDITIONS ------------------------------- #

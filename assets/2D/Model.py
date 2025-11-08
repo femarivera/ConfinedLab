@@ -58,25 +58,29 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
 
+# ----------------------------------- RUN OPTIONS ------------------------------- #
+LOAD_MODEL = True # Loads an existing model to postprocess
+STEADY = False # Builds and runs a steady state simulation
+TRANSIENT = False # Builds and runs a transient simulation (replaces gwf object)
+
+# ------------------------------- POSTPROCESS OPTIONS --------------------------- #
+post_steady = False # Postprocess steady state outputs
+iterate = True # Iterates pumping rates over steady state model files
+
+post_transient = False # Postprocess transient outputs
+response_times = False # Estimates response times from model transient files
+animate = False # Animates transient cross sections
+plot_maps = False # If True, plots map views of heads and flows (just works when model is 3D or 2D Horizontal)
+
+# --------------------- MODEL STRUCTURE OPTIONS --------------------------------- #
+subdivide_layers = True
+
 rivers = False # If True, includes river package instead of drain package
 river_shapefile = False # If True, extracts river cells from shapefile
 if rivers:
     boundary_keywords = ["GHB", "WEL", "RIV"]
 else:
     boundary_keywords = ["GHB", "WEL", "DRN"]
-
-STEADY = True # Runs the steady state simulation
-post_steady = True # Postprocess steady state outputs
-
-iterate = False # Iterates pumping rates over steady state model (Used when STEADY AND post_steady are True)
-
-TRANSIENT = True # Runs the transient simulation
-post_transient = True # Postprocess transient outputs
-response_times = False # Estimates response times (Used when TRANSIENT AND post_transient are True)
-
-animate = False # Animates transient cross sections (Used when TRANSIENT AND post_transient are True)
-
-plot_maps = False # If True, plots map views of heads and flows (just works when model is 3D or 2D Horizontal)
 
 heterogeneity = False # If True, generates random hydraulic conductivity fields
 
@@ -116,7 +120,9 @@ sy = par_df_to_1Darray(par_df, "sy") # Specific yield (adimensional)
 ss = par_df_to_1Darray(par_df, "ss") # Specific storage (m-1)
 drn_cond = par_df_to_1Darray(par_df, "drn_cond") # Hydraulic conductivity of drain bed (m/d) used to compute conductance
 recharge = par_df_to_1Darray(par_df, "rech") # Recharge (m/d)
-c0 = 100 # Initial concentration in mg/L
+
+well_df = pd.read_excel(setup_file, sheet_name="wells")
+q0 = well_df.loc[1, "q"]
 # ------------------------------------------------------------------------------- #
 # --------------------------- STRUCTURED GRID GENERATION ------------------------ #
 # ------------------------------------------------------------------------------- #
@@ -201,36 +207,37 @@ if heterogeneity:
 # ------------------------------------------------------------------------------- #
 # ----------------------- LAYER SUBDIVISION ------------------------------------- #
 # ------------------------------------------------------------------------------- #
+if subdivide_layers:
 
-nsub = geom_df["nsub"].to_list() # Number of subdivisions per layer
+    nsub = geom_df["nsub"].to_list() # Number of subdivisions per layer
 
-#Subdivide layers
-nlay, idomain, ztop_array, zbot = modgeom6.subdivide_layers(idomain, ztop_array, zbot, nsub)
+    #Subdivide layers
+    nlay, idomain, ztop_array, zbot = modgeom6.subdivide_layers(idomain, ztop_array, zbot, nsub)
 
-# Subdivide 1D arrays (size nlay)
-kh = modgeom6.subdivide_array(kh, nsub)
-kv = modgeom6.subdivide_array(kv, nsub)
-sy = modgeom6.subdivide_array(sy, nsub)
-ss = modgeom6.subdivide_array(ss, nsub)
-drn_cond = modgeom6.subdivide_array(drn_cond, nsub)
-base_thicknesses = modgeom6.subdivide_array(base_thicknesses, nsub)
-recharge = modgeom6.subdivide_array(recharge, nsub)
+    # Subdivide 1D arrays (size nlay)
+    kh = modgeom6.subdivide_array(kh, nsub)
+    kv = modgeom6.subdivide_array(kv, nsub)
+    sy = modgeom6.subdivide_array(sy, nsub)
+    ss = modgeom6.subdivide_array(ss, nsub)
+    drn_cond = modgeom6.subdivide_array(drn_cond, nsub)
+    base_thicknesses = modgeom6.subdivide_array(base_thicknesses, nsub)
+    recharge = modgeom6.subdivide_array(recharge, nsub)
 
-# Subdivide 3D arrays (size nlay, nrow, ncol)
-zone_array = modgeom6.subdivide_array(zone_array, nsub)
-kh_array = modgeom6.subdivide_array(kh_array, nsub)
-kv_array = modgeom6.subdivide_array(kv_array, nsub)
-unconfined_areas = modgeom6.subdivide_array(unconfined_areas, nsub)
+    # Subdivide 3D arrays (size nlay, nrow, ncol)
+    zone_array = modgeom6.subdivide_array(zone_array, nsub)
+    kh_array = modgeom6.subdivide_array(kh_array, nsub)
+    kv_array = modgeom6.subdivide_array(kv_array, nsub)
+    unconfined_areas = modgeom6.subdivide_array(unconfined_areas, nsub)
 
-#Update thickness, irch, R_array, zone_array and kh_array
-thickness_array = ztop_array - zbot
-irch = modgeom6.compute_irch(idomain)
-R_array = modgeom6.compute_recharge(irch, recharge)
+    #Update thickness, irch, R_array, zone_array and kh_array
+    thickness_array = ztop_array - zbot
+    irch = modgeom6.compute_irch(idomain)
+    R_array = modgeom6.compute_recharge(irch, recharge)
 
-# Compute storage coefficient array, transmissivity, and diffusivity
-storage_coeff = modgeom6.compute_storage_coefficient(unconfined_areas, sy, ss, thickness_array)
-transmissivity = kh_array * thickness_array
-diffusivity = transmissivity / storage_coeff
+    # Compute storage coefficient array, transmissivity, and diffusivity
+    storage_coeff = modgeom6.compute_storage_coefficient(unconfined_areas, sy, ss, thickness_array)
+    transmissivity = kh_array * thickness_array
+    diffusivity = transmissivity / storage_coeff
 
 # ------------------------------------------------------------------------------- #
 # -------------------------- ADD SOIL LAYER ------------------------------------- #
@@ -264,195 +271,223 @@ if soil_layer:
     transmissivity = kh_array * thickness_array
     diffusivity = transmissivity / storage_coeff
 
-# ---------------------------------------------------------------------------------------- #
-# ----------------------------------------- STEADY STATE --------------------------------- #
-# ---------------------------------------------------------------------------------------- #
+# ------------------------------------------------------------------------------- #
+# ----------------------------- LOAD EXISTING SIMULATION ------------------------ #
+# ------------------------------------------------------------------------------- #
+if LOAD_MODEL:
 
-# Save zone_array
-np.save(f"{model_ws}/zone_array.npy", zone_array)
+    # --- Load the existing simulation ---
+    sim = flopy.mf6.MFSimulation.load(
+    sim_name=model_name,
+    sim_ws=model_ws,
+    exe_name="mf6")
 
-# Create the flopy simulation object
-sim = flopy.mf6.MFSimulation(sim_name = model_name, 
-                             sim_ws = model_ws, 
-                             exe_name = "mf6")
+    # --- Get the GWF model (first one if only one exists) ---
+    gwf = sim.gwf[0]
 
-#Create the temporal discretiztion
-# List contaning tupples: (Stress periods lenght, time steps, multiplier)
-# Lenght of list = number of stress periods
-tdis = flopy.mf6.ModflowTdis(sim, 
-                             pname = "tdis", 
-                             time_units = "DAYS", 
-                             nper = 1, 
-                             perioddata = [(1, 1, 1)]) 
+    # --- Retrieve the WEL package ---
+    # Option 1: direct attribute (if it exists)
+    try:
+        wel = gwf.wel
+    except AttributeError:
+        # Option 2: safe method (always works)
+        wel = gwf.get_package("WEL")
 
-# Create the groundwater flow model object
-gwf = flopy.mf6.ModflowGwf(sim, 
-                           modelname = model_name, 
-                           save_flows = True, 
-                           newtonoptions = "NEWTON UNDER_RELAXATION",
-                           model_nam_file = f"{model_name}.nam")
+    # --- Retrieve WEL stress period data ---
+    wel_spd = {
+    kper: [(cid[0], cid[1], cid[2], q, name) for cid, q, name in zip(d['cellid'], d['q'], d['boundname'])]
+    for kper, d in wel.stress_period_data.get_data().items()}
 
-#Create the Iterative Model Solution
-ims = flopy.mf6.ModflowIms(sim, pname="ims",
-                           print_option="SUMMARY",
-                           complexity="COMPLEX",
-                           outer_dvclose=0.0001,
-                           outer_maximum=1000,
-                           under_relaxation="NONE",
-                           inner_maximum=1000,
-                           inner_dvclose=0.0001,
-                           rcloserecord=0.0001,
-                           linear_acceleration="BICGSTAB",
-                           scaling_method="NONE",
-                           reordering_method="NONE",
-                           relaxation_factor=0.97,
-                           filename=f"{model_name}.ims")
-sim.register_ims_package(ims, [gwf.name])
+    tdis = sim.tdis
+    perioddata = tdis.perioddata.get_data()
 
-# Set the spatial discretization package
-dis = flopy.mf6.ModflowGwfdis(gwf, 
-                              nlay=nlay, nrow=nrow, ncol=ncol, 
-                              delr=dcol, delc=drow, 
-                              top=ztop, botm=zbot, idomain=idomain,
-                              filename=f"{model_name}.dis")
-
-# Set the initial conditions
-strt = np.repeat(ztop[np.newaxis, :, :], nlay, axis=0)
-ic = flopy.mf6.ModflowGwfic(gwf, 
-                            pname = "ic", 
-                            strt = strt,
-                            filename=f"{model_name}.ic")
-
-# Set the Node Property Flow package
-npf = flopy.mf6.ModflowGwfnpf(gwf,
-                              pname = "npf",
-                              save_specific_discharge = True,
-                              save_flows= True,
-                              save_saturation= True,
-                              icelltype=1, # modgeom6.subdivide_array(np.array([1, 1, 1, 1, 1]), nsub), 
-                              k=kh_array,
-                              k33=kv_array,
-                              filename=f"{model_name}.npf")
-
-# Output control
-oc = flopy.mf6.ModflowGwfoc(
-    gwf,
-    pname = "oc",
-    head_filerecord = f"output/{model_name}.hds",
-    budget_filerecord = f"output/{model_name}.cbb",
-    budgetcsv_filerecord = f"output/{model_name}_budget.csv",
-    saverecord = [("HEAD", "ALL"), ("BUDGET", "ALL")],
-    printrecord = [("HEAD", "LAST"),("BUDGET", "LAST")], 
-    filename = f"{model_name}.oc")
-
-# --------------------------- BOUNDARY CONDITIONS ------------------------------- #
-# Rivers or drains
-if rivers:
-    #River package
-    if river_shapefile: 
-        modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp=f"{gis_folder}/grid_topview.shp", crs="EPSG:4326")
-        riv_cells = modbound6.active_cells_from_line(f"{gis_folder}/grid_topview.shp", f"{gis_folder}/river.shp")
-    else:
-        riv_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-2)
-    riv_spd = modbound6.create_riv_spd(
-        riv_cells,
-        ztop_array,
-        thickness_array,
-        drn_cond, # Input corresponds to hydraulic conductivity of the river bed, conductance is computed internally
-        river_length=dcol,
-        river_width=drow,
-        riverbed_thickness=1,
-        stage_type="absolute",
-        a=0,
-        b=1,
-        conc=None)
-    riv = flopy.mf6.ModflowGwfriv(gwf, 
-                                pname = "riv",
-                                save_flows = True,
-                                stress_period_data = riv_spd,
-                                filename = f"{model_name}.riv")
-else: 
-    # Drain package
-    drn_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-2)
-    # drn_cells = [t for t in drn_cells if t not in riv_cells] 
-    drn_spd = modbound6.create_drn_spd(
-        drn_cells,
-        ztop_array,
-        thickness_array,
-        drn_cond, # Input corresponds to hydraulic conductivity of the drain bed, conductance is computed internally
-        drain_length=dcol,
-        drain_width=drow,
-        drainbed_thickness=1,
-        elev_type="absolute",
-        a=0,
-        conc=None)
-    drn = flopy.mf6.ModflowGwfdrn(gwf, 
-                                pname = "drn",
-                                save_flows = True,
-                                stress_period_data = drn_spd,
-                                filename = f"{model_name}.drn")
-
-# Recharge package
-rch = flopy.mf6.ModflowGwfrcha(gwf, 
-                               pname = "rch",
-                               save_flows = True,
-                               fixed_cell= False,
-                               irch=irch,
-                               recharge = R_array,
-                               filename = f"{model_name}.rcha")
-
-# Well package
-well_df = pd.read_excel(setup_file, sheet_name="wells")
-wel_spd = {}
-wel_spd[0] = []
-for well_id, group in well_df.groupby("well_id"):
-    # Extract unique lay, row, col for this well
-    lay = group["lay"].iloc[0]
-    row = group["row"].iloc[0]
-    col = group["col"].iloc[0]
-    
-    # Find the STEADY STATE pumping rate from parameters
-    #q0 = par_df[par_df.index=="q_0"].iloc[0,0]
-    q0 = well_df.loc[1, "q"] # Dynamically get the pumping rate if all wells have the same rate
-
-    # Append tuple to list
-    wel_spd[0].append((lay, row, col, q0, well_id))
-wel = flopy.mf6.ModflowGwfwel(gwf, 
-                              pname = "wel",
-                              save_flows = True,
-                              boundnames=True,
-                              stress_period_data = wel_spd, 
-                              filename = f"{model_name}.wel")
-
-# General head boundary package
-# GHB in the lateral outflow
-ghb_1 = ztop_array[0,0,ncol-1] # Head in the GHB
-ghb_spd1 = {}
-ghb_spd1[0] = [
-    ((ilay, irow, ncol-1), ghb_1, kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
-    for ilay in range(nlay)
-    for irow in range(nrow)] #Conductance set to transmissivity of the cell
-
-# GHB in the top of first layer
-# ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1,col_start=ncol-25, col_end=ncol-2)
-# ghb_spd2 = {}
-# ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j], kh[k]*dcol*width, "top_ghb") for (k, i, j) in ghb_cells2]
-# ghb_spd1[0].extend(ghb_spd2[0])
-
-ghb = flopy.mf6.ModflowGwfghb(gwf,
-                                pname="ghb",
-                                print_input=True,
-                                print_flows=True,
-                                save_flows=True,
-                                boundnames=True,
-                                filename = f"{model_name}.ghb",
-                                stress_period_data=ghb_spd1)
-
-# --------------------------------------------------------------------------------- #    
-# ------------------------------ RUN STEADY STATE --------------------------------- #
-# --------------------------------------------------------------------------------- #  
-
+# --------------------------------------------------------------------------------- #
+# ----------------------------------- BUILD STEADY STATE -------------------------- #
+# --------------------------------------------------------------------------------- #
 if STEADY:
+
+    # Save zone_array
+    np.save(f"{model_ws}/zone_array.npy", zone_array)
+
+    # Create the flopy simulation object
+    sim = flopy.mf6.MFSimulation(sim_name = model_name, 
+                                sim_ws = model_ws, 
+                                exe_name = "mf6")
+
+    #Create the temporal discretiztion
+    # List contaning tupples: (Stress periods lenght, time steps, multiplier)
+    # Lenght of list = number of stress periods
+    tdis = flopy.mf6.ModflowTdis(sim, 
+                                pname = "tdis", 
+                                time_units = "DAYS", 
+                                nper = 1, 
+                                perioddata = [(1, 1, 1)]) 
+
+    # Create the groundwater flow model object
+    gwf = flopy.mf6.ModflowGwf(sim, 
+                            modelname = model_name, 
+                            save_flows = True, 
+                            newtonoptions = "NEWTON UNDER_RELAXATION",
+                            model_nam_file = f"{model_name}.nam")
+
+    #Create the Iterative Model Solution
+    ims = flopy.mf6.ModflowIms(sim, pname="ims",
+                            print_option="SUMMARY",
+                            complexity="COMPLEX",
+                            outer_dvclose=0.0001,
+                            outer_maximum=1000,
+                            under_relaxation="NONE",
+                            inner_maximum=1000,
+                            inner_dvclose=0.0001,
+                            rcloserecord=0.0001,
+                            linear_acceleration="BICGSTAB",
+                            scaling_method="NONE",
+                            reordering_method="NONE",
+                            relaxation_factor=0.97,
+                            filename=f"{model_name}.ims")
+    sim.register_ims_package(ims, [gwf.name])
+
+    # Set the spatial discretization package
+    dis = flopy.mf6.ModflowGwfdis(gwf, 
+                                nlay=nlay, nrow=nrow, ncol=ncol, 
+                                delr=dcol, delc=drow, 
+                                top=ztop, botm=zbot, idomain=idomain,
+                                filename=f"{model_name}.dis")
+
+    # Set the initial conditions 
+    ic = flopy.mf6.ModflowGwfic(gwf, 
+                                pname = "ic", 
+                                strt = np.repeat(ztop[np.newaxis, :, :], nlay, axis=0),
+                                filename=f"{model_name}.ic")
+
+    # Set the Node Property Flow package
+    npf = flopy.mf6.ModflowGwfnpf(gwf,
+                                pname = "npf",
+                                save_specific_discharge = True,
+                                save_flows= True,
+                                save_saturation= True,
+                                icelltype=1, # modgeom6.subdivide_array(np.array([1, 1, 1, 1, 1]), nsub), 
+                                k=kh_array,
+                                k33=kv_array,
+                                filename=f"{model_name}.npf")
+
+    # Output control
+    oc = flopy.mf6.ModflowGwfoc(
+        gwf,
+        pname = "oc",
+        head_filerecord = f"output/{model_name}.hds",
+        budget_filerecord = f"output/{model_name}.cbb",
+        budgetcsv_filerecord = f"output/{model_name}_budget.csv",
+        saverecord = [("HEAD", "ALL"), ("BUDGET", "ALL")],
+        printrecord = [("HEAD", "LAST"),("BUDGET", "LAST")], 
+        filename = f"{model_name}.oc")
+
+    # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
+    # Rivers or drains
+    if rivers:
+        #River package
+        if river_shapefile: 
+            modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp=f"{gis_folder}/grid_topview.shp", crs="EPSG:4326")
+            riv_cells = modbound6.active_cells_from_line(f"{gis_folder}/grid_topview.shp", f"{gis_folder}/river.shp")
+        else:
+            riv_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-2)
+        riv_spd = modbound6.create_riv_spd(
+            riv_cells,
+            ztop_array,
+            thickness_array,
+            drn_cond, # Input corresponds to hydraulic conductivity of the river bed, conductance is computed internally
+            river_length=dcol,
+            river_width=drow,
+            riverbed_thickness=1,
+            stage_type="absolute",
+            a=0,
+            b=1,
+            conc=None)
+        riv = flopy.mf6.ModflowGwfriv(gwf, 
+                                    pname = "riv",
+                                    save_flows = True,
+                                    stress_period_data = riv_spd,
+                                    filename = f"{model_name}.riv")
+    else: 
+        # Drain package
+        drn_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-2)
+        # drn_cells = [t for t in drn_cells if t not in riv_cells] 
+        drn_spd = modbound6.create_drn_spd(
+            drn_cells,
+            ztop_array,
+            thickness_array,
+            drn_cond, # Input corresponds to hydraulic conductivity of the drain bed, conductance is computed internally
+            drain_length=dcol,
+            drain_width=drow,
+            drainbed_thickness=1,
+            elev_type="absolute",
+            a=0,
+            conc=None)
+        drn = flopy.mf6.ModflowGwfdrn(gwf, 
+                                    pname = "drn",
+                                    save_flows = True,
+                                    stress_period_data = drn_spd,
+                                    filename = f"{model_name}.drn")
+
+    # Recharge package
+    rch = flopy.mf6.ModflowGwfrcha(gwf, 
+                                pname = "rch",
+                                save_flows = True,
+                                fixed_cell= False,
+                                irch=irch,
+                                recharge = R_array,
+                                filename = f"{model_name}.rcha")
+
+    # Well package
+    wel_spd = {}
+    wel_spd[0] = []
+    for well_id, group in well_df.groupby("well_id"):
+        # Extract unique lay, row, col for this well
+        lay = group["lay"].iloc[0]
+        row = group["row"].iloc[0]
+        col = group["col"].iloc[0]
+        
+        # Find the STEADY STATE pumping rate from parameters
+        #q0 = par_df[par_df.index=="q_0"].iloc[0,0]
+        q0 = q0 # get the pumping rate if all wells have the same rate
+
+        # Append tuple to list
+        wel_spd[0].append((lay, row, col, q0, well_id))
+    wel = flopy.mf6.ModflowGwfwel(gwf, 
+                                pname = "wel",
+                                save_flows = True,
+                                boundnames=True,
+                                stress_period_data = wel_spd, 
+                                filename = f"{model_name}.wel")
+
+    # General head boundary package
+    # GHB in the lateral outflow
+    ghb_1 = ztop_array[0,0,ncol-1] # Head in the GHB
+    ghb_spd1 = {}
+    ghb_spd1[0] = [
+        ((ilay, irow, ncol-1), ghb_1, kh[ilay] * base_thicknesses[ilay] * width, f"Layer{ilay}")
+        for ilay in range(nlay)
+        for irow in range(nrow)] #Conductance set to transmissivity of the cell
+
+    # GHB in the top of first layer
+    # ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1,col_start=ncol-25, col_end=ncol-2)
+    # ghb_spd2 = {}
+    # ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j], kh[k]*dcol*width, "top_ghb") for (k, i, j) in ghb_cells2]
+    # ghb_spd1[0].extend(ghb_spd2[0])
+
+    ghb = flopy.mf6.ModflowGwfghb(gwf,
+                                    pname="ghb",
+                                    print_input=True,
+                                    print_flows=True,
+                                    save_flows=True,
+                                    boundnames=True,
+                                    filename = f"{model_name}.ghb",
+                                    stress_period_data=ghb_spd1)
+
+    # --------------------------------------------------------------------------------- #    
+    # ------------------------------ RUN STEADY STATE --------------------------------- #
+    # --------------------------------------------------------------------------------- #  
+
     sim.write_simulation()
     sim.run_simulation()
 
@@ -599,197 +634,198 @@ if post_steady:
     # -------------------------- ITERATION PUMPING RATES -------------------------- #
     # ----------------------------------------------------------------------------- #
 
-    if iterate:
-        # Set pumping wells
-        q_df = pd.read_excel(setup_file, sheet_name="q_values_st", index_col=0)
-        q_values = [tuple(row) for row in q_df.iloc[:, :].values]
-        q_ref = tuple(q_df.loc[well_id][0] for well_id in q_df.index) # Reference pumping rates for each well (first value, generally zero)
+if iterate:
+    print("Iterating pumping rates over steady state simulation...")
+    # Set pumping wells
+    q_df = pd.read_excel(setup_file, sheet_name="q_values_st", index_col=0)
+    q_values = [tuple(row) for row in q_df.iloc[:, :].values]
+    q_ref = tuple(q_df.loc[well_id][0] for well_id in q_df.index) # Reference pumping rates for each well (first value, generally zero)
 
-        # Run the iterate_pumping_rate function 
-        modpump6.iterate_pumping_rate_steady(model_ws, sim, gwf, wel_spd, wel, q_values, q_ref, 
-                                                budget_file, head_file_path, nrow//2,
-                                                f"{figure_folder}",
-                                                f"{output_folder}/{model_name}_modpump6_ss.csv",
-                                                boundary_keywords = ["WEL"], ve=100,
-                                                animate = True, animation_name = "cross_section_animation_ss.gif",
-                                                duration = 250, #In seconds, duration of each frame
-                                                save_budget = True, save_wells = True, save_csv = True)
+    # Run the iterate_pumping_rate function 
+    modpump6.iterate_pumping_rate_steady(model_ws, sim, gwf, wel_spd, wel, q_values, q_ref, 
+                                            budget_file, head_file_path, nrow//2,
+                                            f"{figure_folder}",
+                                            f"{output_folder}/{model_name}_modpump6_ss.csv",
+                                            boundary_keywords = ["WEL"], ve=100,
+                                            animate = True, animation_name = "cross_section_animation_ss.gif",
+                                            duration = 250, #In seconds, duration of each frame
+                                            save_budget = True, save_wells = True, save_csv = True)
 
 # ---------------------------------------------------------------------------------------- #
 # ------------------------------------ TRANSIENT SIMULAITON ------------------------------ #
 # ---------------------------------------------------------------------------------------- #
 
-# Check the current and parent directories
-current_dir = os.getcwd()
-print("Current Directory:", current_dir)
-parent_dir = os.path.dirname(current_dir)
-print("Parent Directory:", parent_dir)
+if TRANSIENT: 
 
-# Dispose of warnings
-import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-    
-# ------------------------------------------------------------------------------- #
-# --------------------------------- MODEL SETUP --------------------------------- #
-# ------------------------------------------------------------------------------- #
+    # Check the current and parent directories
+    current_dir = os.getcwd()
+    print("Current Directory:", current_dir)
+    parent_dir = os.path.dirname(current_dir)
+    print("Parent Directory:", parent_dir)
 
-# Recall groundater flow model object from simulation
-gwf = sim.gwf[0]
-gwf.model_nam_file = f"{model_name_tr}.nam"
-ncol = gwf.dis.ncol.get_data()
-nrow = gwf.dis.nrow.get_data()
-nlay = gwf.dis.nlay.get_data()
+    # Dispose of warnings
+    import warnings
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+        
+    # ------------------------------------------------------------------------------- #
+    # --------------------------------- MODEL SETUP --------------------------------- #
+    # ------------------------------------------------------------------------------- #
 
-# ----------------------------- UPDATE PACKAGES ----------------------------------- #
+    # Recall groundater flow model object from simulation
+    gwf = sim.gwf[0]
+    gwf.model_nam_file = f"{model_name_tr}.nam"
+    ncol = gwf.dis.ncol.get_data()
+    nrow = gwf.dis.nrow.get_data()
+    nlay = gwf.dis.nlay.get_data()
 
-# Update time discretization
-tdis_df = pd.read_excel(setup_file, sheet_name="tdis")
-nper = len(tdis_df.index)
-perlen = tdis_df["perlen"].tolist()
-nstp = tdis_df["nstp"].tolist()
-tsmult = tdis_df["tsmult"].tolist()
-perioddata = list(zip(perlen, nstp, tsmult))
-tdis = sim.tdis
-tdis.nper = nper
-tdis.perioddata = perioddata
+    # ----------------------------- UPDATE PACKAGES ----------------------------------- #
 
-# Update the initial conditions (this block is ignored since steady_state={0: True} in the storage package)
-ic = gwf.ic
-if STEADY:
-    ic.strt = steady_state_heads
-else:
-    ic.strt = strt
-ic.filename = f"{model_name_tr}.ic"
+    # Update time discretization
+    tdis_df = pd.read_excel(setup_file, sheet_name="tdis")
+    nper = len(tdis_df.index)
+    perlen = tdis_df["perlen"].tolist()
+    nstp = tdis_df["nstp"].tolist()
+    tsmult = tdis_df["tsmult"].tolist()
+    perioddata = list(zip(perlen, nstp, tsmult))
+    tdis = sim.tdis
+    tdis.nper = nper
+    tdis.perioddata = perioddata
 
-# Create storage package for transient simulation
-sto = flopy.mf6.ModflowGwfsto(
-    gwf,
-    pname="sto",
-    iconvert = 1, #Unconfined/confined mixed storage is used
-    sy=sy, #Specific yield
-    ss=ss, #If not specified, flopy uses default value of 1e-5 m-1
-    ss_confined_only=True,
-    steady_state={0: True}, # First stress period is steady state
-    transient={1: True}, 
-    filename=f"{model_name_tr}.sto")
+    # Update the initial conditions (this block is ignored since steady_state={0: True} in the storage package)
+    ic = gwf.ic
+    if STEADY:
+        ic.strt = steady_state_heads
+    else:
+        ic.strt = np.repeat(ztop[np.newaxis, :, :], nlay, axis=0)
+    ic.filename = f"{model_name_tr}.ic"
 
-# # Create storage package for transient simulation
-# sto = flopy.mf6.ModflowGwfsto(
-#     gwf,
-#     pname="sto",
-#     iconvert = 0, #Confined storage is used
-#     storagecoefficient = True,
-#     ss=storage_coeff, #Using an array that has sy for unconfined areas, and ss*thickness for confined areas
-#     steady_state={0: True}, # First stress period is steady state
-#     transient={1: True}, 
-#     filename=f"{model_name_tr}.sto")
+    # Create storage package for transient simulation
+    sto = flopy.mf6.ModflowGwfsto(
+        gwf,
+        pname="sto",
+        iconvert = 1, #Unconfined/confined mixed storage is used
+        sy=sy, #Specific yield
+        ss=ss, #If not specified, flopy uses default value of 1e-5 m-1
+        ss_confined_only=True,
+        steady_state={0: True}, # First stress period is steady state
+        transient={1: True}, 
+        filename=f"{model_name_tr}.sto")
 
-# Update output control
-oc = gwf.oc
-oc.head_filerecord = f"output/{model_name_tr}.hds"
-oc.budget_filerecord = f"output/{model_name_tr}.cbb"
-oc.budgetcsv_filerecord = f"output/{model_name_tr}_budget.csv"
-oc.filename = f"{model_name_tr}.oc"
+    # # Create storage package for transient simulation
+    # sto = flopy.mf6.ModflowGwfsto(
+    #     gwf,
+    #     pname="sto",
+    #     iconvert = 0, #Confined storage is used
+    #     storagecoefficient = True,
+    #     ss=storage_coeff, #Using an array that has sy for unconfined areas, and ss*thickness for confined areas
+    #     steady_state={0: True}, # First stress period is steady state
+    #     transient={1: True}, 
+    #     filename=f"{model_name_tr}.sto")
 
-# ---------------------------- UPDATE TRANSIENT BOUNDARY CONDITIONS -------------------------- #
+    # Update output control
+    oc = gwf.oc
+    oc.head_filerecord = f"output/{model_name_tr}.hds"
+    oc.budget_filerecord = f"output/{model_name_tr}.cbb"
+    oc.budgetcsv_filerecord = f"output/{model_name_tr}_budget.csv"
+    oc.filename = f"{model_name_tr}.oc"
 
-# ---------------------------- Update transient recharge package ---------------------------- #
-rch = flopy.mf6.ModflowGwfrcha(gwf, 
-                            pname = "rch",
-                            save_flows = True,
-                            fixed_cell= True,
-                            irch=irch,
-                            recharge = "TIMEARRAYSERIES recharge", 
-                            filename = f"{model_name_tr}.rcha")
-# ---- Manual step changes
-#tas_data = {0 : R_array,
-#        3000000 : R_array,
-#        20000000 : R_array} 
+    # ---------------------------- UPDATE TRANSIENT BOUNDARY CONDITIONS -------------------------- #
 
-# Load your recharge series CSV
-df = pd.read_excel(setup_file, sheet_name="transient_recharge")
+    # ---------------------------- Update transient recharge package ---------------------------- #
+    rch = flopy.mf6.ModflowGwfrcha(gwf, 
+                                pname = "rch",
+                                save_flows = True,
+                                fixed_cell= True,
+                                irch=irch,
+                                recharge = "TIMEARRAYSERIES recharge", 
+                                filename = f"{model_name_tr}.rcha")
+    # ---- Manual step changes
+    #tas_data = {0 : R_array,
+    #        3000000 : R_array,
+    #        20000000 : R_array} 
 
-# ---- For recharge specified per layer
-# Extract time steps and R time series per layer
-time_steps = df.iloc[:, 0].values  # shape (n_times_steps,)
-R_vectors = df.iloc[:, 1:].values  # shape (n_time_steps, n_layers)
-# Compute recharge arrays per time step
-tas_data = {}
-for i, t in enumerate(time_steps):
-    recharge = modgeom6.subdivide_array(R_vectors[i], nsub)
-    recharge_array = modgeom6.compute_recharge(irch, recharge)  # shape (nrow, ncol)
-    tas_data[t] = recharge_array
+    # Load your recharge series CSV
+    df = pd.read_excel(setup_file, sheet_name="transient_recharge")
 
-# ---- For single recharge series
-# tas_data = dict(zip(df.iloc[:, 0], df.iloc[:, 1]))
+    # ---- For recharge specified per layer
+    # Extract time steps and R time series per layer
+    time_steps = df.iloc[:, 0].values  # shape (n_times_steps,)
+    R_vectors = df.iloc[:, 1:].values  # shape (n_time_steps, n_layers)
+    # Compute recharge arrays per time step
+    tas_data = {}
+    for i, t in enumerate(time_steps):
+        recharge = modgeom6.subdivide_array(R_vectors[i], nsub)
+        recharge_array = modgeom6.compute_recharge(irch, recharge)  # shape (nrow, ncol)
+        tas_data[t] = recharge_array
 
-rch.tas.initialize(
-    filename="recharge_rates.ts",
-    tas_array=tas_data,
-    time_series_namerecord="recharge",
-    interpolation_methodrecord="stepwise",)
+    # ---- For single recharge series
+    # tas_data = dict(zip(df.iloc[:, 0], df.iloc[:, 1]))
 
-# ---------------------------- Update transient well package ---------------------------- #
-wel_spd = {}
-wel_spd[0] = []
-for well_id, group in well_df.groupby("well_id"):
-    # Extract unique lay, row, col for this well
-    lay = group["lay"].iloc[0]
-    row = group["row"].iloc[0]
-    col = group["col"].iloc[0]
-    
-    # Append tuple to list (uses key "wells" for time series initialization later)
-    wel_spd[0].append((lay, row, col, well_id, well_id))
+    rch.tas.initialize(
+        filename="recharge_rates.ts",
+        tas_array=tas_data,
+        time_series_namerecord="recharge",
+        interpolation_methodrecord="stepwise",)
 
-wel = flopy.mf6.ModflowGwfwel(gwf, 
-                            pname = "wel",
-                            save_flows = True,
-                            boundnames=True,
-                            stress_period_data = wel_spd, 
-                            filename = f"{model_name_tr}.wel")
+    # ---------------------------- Update transient well package ---------------------------- #
+    wel_spd = {}
+    wel_spd[0] = []
+    for well_id, group in well_df.groupby("well_id"):
+        # Extract unique lay, row, col for this well
+        lay = group["lay"].iloc[0]
+        row = group["row"].iloc[0]
+        col = group["col"].iloc[0]
+        
+        # Append tuple to list (uses key "wells" for time series initialization later)
+        wel_spd[0].append((lay, row, col, well_id, well_id))
 
-# Get unique wells ids and timesteps from well_df
-well_ids = sorted(well_df["well_id"].unique())
-all_times = sorted(well_df["time"].unique())
+    wel = flopy.mf6.ModflowGwfwel(gwf, 
+                                pname = "wel",
+                                save_flows = True,
+                                boundnames=True,
+                                stress_period_data = wel_spd, 
+                                filename = f"{model_name_tr}.wel")
 
-ts_data = []
-last_q = {well: None for well in well_ids} # Prepare a dict to store the last known q for each well
+    # Get unique wells ids and timesteps from well_df
+    well_ids = sorted(well_df["well_id"].unique())
+    all_times = sorted(well_df["time"].unique())
 
-for t in all_times:
-    row = [t]  # start a list with the timestep
-    for well in well_ids:
-        # Get the row in well_df with this well and time
-        matching = well_df[(well_df["well_id"] == well) & (well_df["time"] == t)]
-        if not matching.empty:
-            q = matching["q"].iloc[0]
-            last_q[well] = q  # update last known pumping rate
-        else:
-            q = last_q[well]  # use previous pumping rate
-        row.append(q) # Append the pumping rate the row
-    ts_data.append(tuple(row)) # Append the tuple to the data list
+    ts_data = []
+    last_q = {well: None for well in well_ids} # Prepare a dict to store the last known q for each well
 
-wel.ts.initialize(
-    filename="well_rates.ts",
-    timeseries=ts_data,
-    time_series_namerecord=well_ids,
-    interpolation_methodrecord=["stepwise"]*len(well_ids))
+    for t in all_times:
+        row = [t]  # start a list with the timestep
+        for well in well_ids:
+            # Get the row in well_df with this well and time
+            matching = well_df[(well_df["well_id"] == well) & (well_df["time"] == t)]
+            if not matching.empty:
+                q = matching["q"].iloc[0]
+                last_q[well] = q  # update last known pumping rate
+            else:
+                q = last_q[well]  # use previous pumping rate
+            row.append(q) # Append the pumping rate the row
+        ts_data.append(tuple(row)) # Append the tuple to the data list
 
-# ---------------------------------- OBSERVATIONS --------------------------------------- #
+    wel.ts.initialize(
+        filename="well_rates.ts",
+        timeseries=ts_data,
+        time_series_namerecord=well_ids,
+        interpolation_methodrecord=["stepwise"]*len(well_ids))
 
-# Head observations
-obs_df = pd.read_excel(setup_file, sheet_name="observations")
-obs_recarray = {f"output/head_obs_t.csv": [
-    (row["obs_label"], row["obs_type"], (row["lay"], row["row"], row["col"]))
-    for _, row in obs_df.iterrows()]}
+    # ---------------------------------- OBSERVATIONS --------------------------------------- #
 
-obs_package = flopy.mf6.ModflowUtlobs(
-    gwf,
-    pname="head_obs_t",
-    print_input=True,
-    continuous=obs_recarray, 
-    filename=f"{model_name_tr}.obs")
+    # Head observations
+    obs_df = pd.read_excel(setup_file, sheet_name="observations")
+    obs_recarray = {f"output/head_obs_t.csv": [
+        (row["obs_label"], row["obs_type"], (row["lay"], row["row"], row["col"]))
+        for _, row in obs_df.iterrows()]}
 
-if TRANSIENT:
+    obs_package = flopy.mf6.ModflowUtlobs(
+        gwf,
+        pname="head_obs_t",
+        print_input=True,
+        continuous=obs_recarray, 
+        filename=f"{model_name_tr}.obs")
 
     # --------------------------------------------------------------------------- #    
     # ----------------------------- RUN TRANSIENT ------------------------------- #
@@ -813,7 +849,7 @@ if TRANSIENT:
 time_step_plot = 0  # Time step to plot (0 = first time step)
 
 budget_file_path = f"{output_folder}/{model_name_tr}.cbb"
-cb = flopy.utils.CellBudgetFile(budget_file_path) # or gwf.output.budget()
+cb =  flopy.utils.CellBudgetFile(budget_file_path, precision = "double")  # gwf.output.budget()
 steps = cb.get_kstpkper()
 kstpkper = steps[0]
 spdis = cb.get_data(text='DATA-SPDIS', kstpkper=kstpkper)[0]
@@ -1292,7 +1328,7 @@ if response_times:
                                             save=True,
                                             ve=100,
                                             output_folder=f"{figure_folder}/Residual_diffusion",
-                                            plot_name=f"Residual_diffusion_{t}.png",
+                                            plot_name=f"Residual_diffusion_{start}.png",
                                             boundary_keywords=["WEL"])
     vmax = np.nanmax(res_diff_array)
 

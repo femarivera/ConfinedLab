@@ -3520,7 +3520,7 @@ def response_time_array_absolute(
     initial_diff[zero_diff_mask] = np.nan
     if np.all(np.isnan(initial_diff)):
         print("No residual diffusion higher than the stability threshold — returning NaN")
-        return np.nan
+        return np.nan, np.nan, np.nan, np.nan
 
     # Initialize response time array with end_time as default
     response_time_array = np.full((nlay, nrow, ncol), times[end_step])
@@ -3775,7 +3775,7 @@ def response_time_array_relative(
     initial_diff_max = np.nanmax(initial_diff)
     if np.all(np.isnan(initial_diff)):
         print("No residual diffusion higher than the stability threshold — returning NaN")
-        return np.nan
+        return np.nan, np.nan, np.nan, np.nan
 
     # Initialize response time array with end_time as default
     response_time_array = np.full((nlay, nrow, ncol), times[end_step])

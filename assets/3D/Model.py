@@ -59,16 +59,16 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # ------------------------------------------------------------------------------- #
 
 # ----------------------------------- RUN OPTIONS ------------------------------- #
-LOAD_MODEL = True # Loads an existing model to postprocess
-STEADY = False # Builds and runs a steady state simulation
-TRANSIENT = False # Builds and runs a transient simulation (replaces gwf object)
+LOAD_MODEL = False # Loads an existing model to postprocess
+STEADY = True # Builds and runs a steady state simulation
+TRANSIENT = True # Builds and runs a transient simulation (replaces gwf object)
 
 # ------------------------------- POSTPROCESS OPTIONS --------------------------- #
-post_steady = False # Postprocess steady state outputs
-iterate = True # Iterates pumping rates over steady state model files
+post_steady = True # Postprocess steady state outputs
+iterate = False # Iterates pumping rates over steady state model files
 
-post_transient = False # Postprocess transient outputs
-response_times = False # Estimates response times from model transient files
+post_transient = True # Postprocess transient outputs
+response_times = True # Estimates response times from model transient files
 animate = False # Animates transient cross sections
 plot_maps = True # If True, plots map views of heads and flows (just works when model is 3D or 2D Horizontal)
 
@@ -334,12 +334,12 @@ if STEADY:
     ims = flopy.mf6.ModflowIms(sim, pname="ims",
                             print_option="SUMMARY",
                             complexity="COMPLEX",
-                            outer_dvclose=0.0001,
+                            outer_dvclose=0.001,
                             outer_maximum=1000,
                             under_relaxation="NONE",
                             inner_maximum=1000,
-                            inner_dvclose=0.0001,
-                            rcloserecord=0.0001,
+                            inner_dvclose=0.001,
+                            rcloserecord=0.01,
                             linear_acceleration="BICGSTAB",
                             scaling_method="NONE",
                             reordering_method="NONE",

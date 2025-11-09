@@ -144,7 +144,7 @@ def plot_map_view(gwf,
     if flow_dir:
         if cbb_path is None:
             raise ValueError("cbb_path must be provided to plot flow directions.")
-        cbb = flopy.utils.CellBudgetFile(cbb_path)
+        cbb = flopy.utils.CellBudgetFile(cbb_path, precision='double')
         if transient:
             steps = cbb.get_kstpkper()
             kstpkper = steps[time_step]
@@ -334,7 +334,7 @@ def plot_cross_section_row(gwf,
     if flow_dir:
         if cbb_path is None:
             raise ValueError("cbb_path must be provided to plot flow directions.")
-        cbb = flopy.utils.CellBudgetFile(cbb_path)
+        cbb = flopy.utils.CellBudgetFile(cbb_path, precision='double')
         if transient:
             steps = cbb.get_kstpkper()
             kstpkper = steps[time_step]
@@ -533,7 +533,7 @@ def plot_cross_section_col(gwf,
     if flow_dir:
         if cbb_path is None:
             raise ValueError("cbb_path must be provided to plot flow directions.")
-        cbb = flopy.utils.CellBudgetFile(cbb_path)
+        cbb = flopy.utils.CellBudgetFile(cbb_path, precision='double')
         if transient:
             steps = cbb.get_kstpkper()
             kstpkper = steps[time_step]

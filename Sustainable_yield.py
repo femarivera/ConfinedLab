@@ -20,7 +20,7 @@ EFFICIENCY = True  # Set to True to run the efficiency-based iteration process
 
 ESTIMATE = True  # Set to True to run the sustainable yield estimation
 
-planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000] # In years
+planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 50000] # In years
 pump_start = 3600000 # In model totim units (days)
 
 # --------------------------------------------------------------------------------------- #
@@ -63,7 +63,7 @@ constraints = [
     { 
     'label': "Spring discharge all zones", 
     'id': "drn_all", 
-    'constrain': "DRN",
+    'constrain': "DRN(DRN)",
     'flow': "NET", 
     'zone': "ALL", 
     'threshold_type': "RELATIVE", 
@@ -84,7 +84,7 @@ constraints = [
     { 
     'label': "Lateral outflow zone 3",
     'id': "ghb_3", 
-    'constrain': "GHB",
+    'constrain': "GHB2-GHB",
     'flow': "NET", 
     'zone': 3, 
     'threshold_type': "ABSOLUTE", 
@@ -105,7 +105,7 @@ constraints = [
     "reference": None,
     "neighbour_zones": None,    # ignored for HEAD
     "color": "orange",
-    "head_obs": "CAQ 1"         # REQUIRED for HEAD
+    "head_obs": "CAQ1_12_400"         # REQUIRED for HEAD
 }
     ]
 
@@ -145,6 +145,7 @@ if ESTIMATE:
             pump_zone="ALL",
             planning_horizon=tp,
             constraints=constraints,
+            model_name=model_name,
             csv_filename= f"Q_vs_flow_{int(tp/360)}.csv",
             plot_filename=f"Q_vs_flow_{int(tp/360)}.png",
             plot_units="years",

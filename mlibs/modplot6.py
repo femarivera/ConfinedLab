@@ -129,6 +129,8 @@ def plot_map_view(gwf,
     modelmap = flopy.plot.PlotMapView(model=gwf, ax=ax, layer=layer)
     # Plot the heads
     pa = modelmap.plot_array(masked_head, vmin=vmin, vmax=vmax)
+    # Enforce 1:1 aspect ratio for accurate spatial scaling
+    ax.set_aspect('equal', adjustable='box')
 
     # Add contours
     if contours:
@@ -205,7 +207,8 @@ def plot_cross_section_row(gwf,
                            vmin=None,
                            vmax=None,
                            transient=False,
-                           time_step=0):
+                           time_step=0, 
+                           interfaces=None):
     """
     Plots a cross-section for a MODFLOW 6 groundwater flow model along a specified row.
 
@@ -230,6 +233,7 @@ def plot_cross_section_row(gwf,
         vmax (float, optional): Maximum head value for color scaling.
         transient (bool): Whether the input is transient or steady state.
         time_step (int): Time step index to plot for transient data.
+        interfaces (np.ndarray, optional): 3D array of layer interfaces for plotting.
 
     Outputs:
         Displays the cross-section plot and/or saves it to a file.
@@ -262,6 +266,8 @@ def plot_cross_section_row(gwf,
         raise ValueError("fontsize must be a number.")
     if title is not None and not isinstance(title, str):
         raise ValueError("title must be a string or None.")
+    if interfaces is not None and not isinstance(interfaces, np.ndarray):
+        raise ValueError("interfaces must be a numpy ndarray or None.")
     
     # Default color mapping based on boundary condition type
     color_map = {
@@ -367,6 +373,18 @@ def plot_cross_section_row(gwf,
         legend_handles = [Line2D([0], [0], color=color, lw=2, label=label) for color, label in layer_colors]
         if layers:
             ax.legend(handles=legend_handles, loc="lower left", title="Layers", fontsize=fontsize/1.5)
+    
+    if interfaces is not None:
+        try:
+            dcol = gwf.modelgrid.delr if np.isscalar(gwf.modelgrid.delr) else np.mean(gwf.modelgrid.delr)
+            x = np.arange(ncol) * dcol
+
+            # Plot each interface
+            for k in range(interfaces.shape[0]):
+                ax.plot(x, interfaces[k, row, :], "k-", lw=1.0)
+
+        except Exception as e:
+            print(f"Could not plot interfaces: {e}")
 
     # Adjust vertical exageration
     ax.set_aspect(ve)
@@ -406,7 +424,8 @@ def plot_cross_section_col(gwf,
                            vmin=None,
                            vmax=None,
                            transient=False,
-                           time_step=0):
+                           time_step=0,
+                           interfaces=None):
     """
     Plots a cross-section for a MODFLOW 6 groundwater flow model along a specified column.
 
@@ -431,6 +450,7 @@ def plot_cross_section_col(gwf,
         vmax (float, optional): Maximum head value for color scaling.
         transient (bool): Whether the input is transient or steady state.
         time_step (int): Time step index to plot for transient data.
+        interfaces (np.ndarray, optional): 3D array of layer interfaces for plotting.
 
     Outputs:
         Displays the cross-section plot and/or saves it to a file.
@@ -566,6 +586,18 @@ def plot_cross_section_col(gwf,
         legend_handles = [Line2D([0], [0], color=color, lw=2, label=label) for color, label in layer_colors]
         if layers:
             ax.legend(handles=legend_handles, loc="lower left", title="Layers", fontsize=fontsize/1.5)
+
+    if interfaces is not None:
+        try:
+            drow = gwf.modelgrid.delr if np.isscalar(gwf.modelgrid.delr) else np.mean(gwf.modelgrid.delr)
+            x = np.arange(nrow) * drow
+
+            # Plot each interface
+            for k in range(interfaces.shape[0]):
+                ax.plot(x, interfaces[k, col, :], "k-", lw=1.0)
+
+        except Exception as e:
+            print(f"Could not plot interfaces: {e}")
 
     # Adjust vertical exageration
     ax.set_aspect(ve)
@@ -719,7 +751,8 @@ def plot_cross_section_array(gwf,
                              log=False,
                              label="Legend", 
                              vmin = None, 
-                             vmax = None):
+                             vmax = None, 
+                             interfaces=None):
     """
     Plots a cross-section for a MODFLOW 6 groundwater flow model along a specified row.
 
@@ -738,6 +771,7 @@ def plot_cross_section_array(gwf,
         colorbar (bool, optional): Whether to include a colorbar.
         label (str, optional): Label for the colorbar.
         vmin, vmax (float, optional): Minimum and maximum values for color scaling. If None, computed from the array.
+        log (bool, optional): Whether to use logarithmic color scaling.
 
     Outputs:
         Displays the cross-section plot and/or saves it to a file.
@@ -828,7 +862,19 @@ def plot_cross_section_array(gwf,
             # Plot the boundary condition with the appropriate color
             if bc_color:
                 section.plot_bc(bc, color=bc_color)
-    
+
+    if interfaces is not None:
+        try:
+            dcol = gwf.modelgrid.delr if np.isscalar(gwf.modelgrid.delr) else np.mean(gwf.modelgrid.delr)
+            x = np.arange(ncol) * dcol
+
+            # Plot each interface
+            for k in range(interfaces.shape[0]):
+                ax.plot(x, interfaces[k, row, :], "k-", lw=1.0)
+
+        except Exception as e:
+            print(f"Could not plot interfaces: {e}")
+            
     # Adjust vertical exageration
     ax.set_aspect(ve)
 
@@ -855,7 +901,8 @@ def plot_animation(gwf, heads, nrow, times,
                     flow_dir=True, qx=None, qy=None, qz=None,
                     surface=True, layers=True,
                     figsize=(19, 4), fontsize=14, ve=10, 
-                    gif_start=0, gif_step=1, duration=0.5, vmin=None, vmax=None):
+                    gif_start=0, gif_step=1, duration=0.5, vmin=None, vmax=None, 
+                    interfaces=None):
     """
     Plot cross-sections for all time steps in the heads array, save images, and create an animation
     of a transient simulation.
@@ -879,6 +926,8 @@ def plot_animation(gwf, heads, nrow, times,
         gif_start (int, optional): First time step to include in the animation.
         gif_step (int, optional): Step size for time steps in the animation.
         duration (float, optional): Duration (in seconds) for each frame in the GIF.
+        vmin, vmax (float, optional): Minimum and maximum head values for color scaling.
+        interfaces (np.ndarray, optional): 3D array of layer interfaces for plotting.
 
     Outputs:
         Saves cross-section images for each time step and creates an animated GIF.
@@ -933,7 +982,7 @@ def plot_animation(gwf, heads, nrow, times,
             surface=surface, layers=layers, ve=ve,
             show=show, save=save, figsize=figsize, fontsize=fontsize,
             title=f"Hydraulic heads after {int((times_list[tstep] - times_list[gif_start])/360)} years",
-            vmin=vmin, vmax=vmax)
+            vmin=vmin, vmax=vmax, interfaces=interfaces)
         
         print(f"Saved cross-section plot for time step {tstep} at {output_path}")
 

@@ -123,7 +123,8 @@ def iterate_pumping_rate_steady(model_ws,
                                 ve=10, 
                                 save_budget = False, 
                                 save_wells = False,
-                                save_csv = False):
+                                save_csv = False, 
+                                interfaces=None):
     """
     Function to iterate through different pumping rates, run simulations, and generate plots.
     Used for STEADY STATE SIMULATIONS.
@@ -235,7 +236,7 @@ def iterate_pumping_rate_steady(model_ws,
                                             boundary_keywords = boundary_keywords,
                                             flow_dir = False,
                                             surface = True, layers=layers, ve=ve,
-                                            show = False, save = False, ax=ax)
+                                            show = False, save = False, ax=ax, interfaces=interfaces)
             plt.title(f"Cross-Section for Total Pumping Rate: {abs(sum(q_tuple)):.1f} m³/day")
 
             # Save the plot as an image and append the path to image_paths
@@ -818,7 +819,7 @@ def estimate_sustainable_yield_flows_only(
 
     return qs_value, df
 
-def estimate_sustainable_yield(
+def estimate_sustainable_yield_flows_heads(
     input_folder: str,
     output_folder: str,
     plot_folder: str,
@@ -1121,6 +1122,322 @@ def estimate_sustainable_yield(
 
     return qs_value, df
 
+def estimate_sustainable_yield(
+    input_folder: str,
+    output_folder: str,
+    plot_folder: str,
+    pump_start: float,
+    pump_zone: str,
+    planning_horizon: float,
+    constraints: list,
+    model_name: str,
+    csv_filename: str = "flow_summary.csv",
+    plot_filename: str = "Q_vs_flow.png",
+    plot_units: str = None,
+    conversion_factor: float = 1.0
+):
+    """
+    Extended version:
+      • Supports FLOW, HEAD, and LEAKAGE constraints.
+      • Automatically uses aggregated model budget file (<model_name>_budget_it_qv_X.csv)
+        instead of zonebudget file whenever:
+          - pump_zone == "ALL"
+          - OR a flow constraint (not LEAKAGE) has zone == "ALL".
+      • The budget file’s time column is automatically renamed from "time" → "totim"
+        to keep consistent time handling throughout.
+
+    Naming conventions:
+      Zonebudget file columns:  <pname>-<ptype>-IN/OUT  or  <ptype>-IN/OUT
+      Budget file columns:      <ptype>(<pname>)_IN/OUT
+    """
+
+    import os
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    from typing import Optional
+
+    os.makedirs(output_folder, exist_ok=True)
+    os.makedirs(plot_folder, exist_ok=True)
+
+    # --- helper: find where constraint crosses threshold ---
+    def find_threshold_crossing(x, y, threshold=0):
+        for i in range(len(y) - 1):
+            if pd.isna(y[i]) or pd.isna(y[i + 1]):
+                continue
+            if (y[i] - threshold) * (y[i + 1] - threshold) < 0:
+                x0, x1 = x[i], x[i + 1]
+                y0, y1 = y[i] - threshold, y[i + 1] - threshold
+                return x0 - y0 * (x1 - x0) / (y1 - y0)
+        return None
+
+    # --- helper: paired head_obs file ---
+    def paired_head_file(zonebud_filename: str) -> Optional[str]:
+        base, ext = os.path.splitext(zonebud_filename)
+        if not base.startswith("zonebud_it_qv_"):
+            return None
+        suffix = base[len("zonebud_"):]  # e.g. "it_qv_0"
+        candidate = f"head_obs_t_{suffix}{ext}"
+        path = os.path.join(input_folder, candidate)
+        return path if os.path.isfile(path) else None
+
+    # --- helper: paired aggregated budget file ---
+    def paired_budget_file(zonebud_filename: str) -> Optional[str]:
+        base, ext = os.path.splitext(zonebud_filename)
+        if not base.startswith("zonebud_it_qv_"):
+            return None
+        suffix = base[len("zonebud_"):]  # e.g. "it_qv_0"
+        candidate = f"{model_name}_budget_{suffix}{ext}"
+        path = os.path.join(input_folder, candidate)
+        return path if os.path.isfile(path) else None
+
+    # --- compute target time for constraint evaluation ---
+    time_target = pump_start + planning_horizon
+
+    # --- result collector ---
+    results = {c["id"]: [] for c in constraints}
+
+    # --- loop through all zonebudget scenarios ---
+    for file_name in os.listdir(input_folder):
+        if not (file_name.startswith("zonebud") and file_name.endswith(".csv")):
+            continue
+
+        file_path = os.path.join(input_folder, file_name)
+        try:
+            data = pd.read_csv(file_path)
+        except Exception:
+            continue
+
+        if "totim" not in data.columns or "WEL-OUT" not in data.columns:
+            continue
+
+        # --- try to pair related files ---
+        head_path = paired_head_file(file_name)
+        budget_path = paired_budget_file(file_name)
+
+        heads_df, budget_df = None, None
+
+        # --- load head file ---
+        if head_path and os.path.isfile(head_path):
+            try:
+                tmp = pd.read_csv(head_path)
+                for alt in ["time", "Time", "TIME"]:
+                    if "totim" not in tmp.columns and alt in tmp.columns:
+                        tmp = tmp.rename(columns={alt: "totim"})
+                if "totim" in tmp.columns:
+                    heads_df = tmp
+            except Exception:
+                pass
+
+        # --- load aggregated budget file ---
+        if budget_path and os.path.isfile(budget_path):
+            try:
+                budget_df = pd.read_csv(budget_path)
+                # rename "time" -> "totim" for consistency
+                if "time" in budget_df.columns and "totim" not in budget_df.columns:
+                    budget_df = budget_df.rename(columns={"time": "totim"})
+            except Exception:
+                pass
+
+        # --- filter post-pumping period ---
+        pump_data = data[data["totim"] >= pump_start].copy()
+        if pump_data.empty:
+            continue
+
+        # --- compute pumping rate ---
+        if pump_zone == "ALL" and budget_df is not None:
+            # prefer aggregated budget (usually column WEL(WEL)_OUT)
+            # ⚠️ If multiple well packages exist, adjust this name accordingly.
+            if "WEL(WEL)_OUT" in budget_df.columns:
+                pump_series = budget_df.loc[budget_df["totim"] >= pump_start, "WEL(WEL)_OUT"]
+            else:
+                pump_series = pump_data.groupby("totim")["WEL-OUT"].sum()
+        elif pump_zone == "ALL":
+            # fallback if no budget file found
+            if "zone" in pump_data.columns:
+                pump_series = pump_data.groupby("totim")["WEL-OUT"].sum()
+            else:
+                pump_series = pump_data["WEL-OUT"]
+        else:
+            # zone-specific pumping
+            if "zone" in pump_data.columns:
+                pump_series = pump_data.loc[pump_data["zone"] == pump_zone, "WEL-OUT"]
+            else:
+                continue
+
+        if pump_series.empty:
+            continue
+
+        Q_code = float(pd.to_numeric(pump_series, errors="coerce").mean())
+
+        # --- evaluate all constraints for this scenario ---
+        for c in constraints:
+            cid = c["id"]
+            constr = c["constrain"].upper()
+            zone = c["zone"]
+            flow = c["flow"].upper()
+            value = None
+
+            # ---------- HEAD constraint ----------
+            if constr == "HEAD":
+                head_col = c.get("head_obs")
+                if heads_df is None or head_col not in heads_df.columns:
+                    continue
+                closest_idx = (heads_df["totim"] - time_target).abs().idxmin()
+                value = heads_df.loc[closest_idx, head_col]
+                if pd.notna(value):
+                    results[cid].append((Q_code, float(value)))
+                continue
+
+            # ---------- LEAKAGE constraint ----------
+            if constr == "LEAKAGE":
+                subset = data if zone == "ALL" else data[data["zone"] == zone]
+                nz = c.get("neighbour_zones") or []
+                required_cols = set([f"TO ZONE {z}" for z in nz] + [f"FROM ZONE {z}" for z in nz] + ["totim"])
+                if not required_cols.issubset(subset.columns):
+                    continue
+                closest_idx = (subset["totim"] - time_target).abs().idxmin()
+                row = subset.loc[closest_idx]
+                to_sum = float(sum(row.get(f"TO ZONE {z}", 0.0) for z in nz))
+                from_sum = float(sum(row.get(f"FROM ZONE {z}", 0.0) for z in nz))
+                if flow == "NET":
+                    value = to_sum - from_sum
+                elif flow == "OUT":
+                    value = to_sum
+                elif flow == "IN":
+                    value = from_sum
+
+            # ---------- FLOW with zone == "ALL" (use aggregated budget) ----------
+            elif zone == "ALL" and budget_df is not None:
+                out_col, in_col = f"{c['constrain']}_OUT", f"{c['constrain']}_IN"
+                if "totim" not in budget_df.columns:
+                    continue
+                closest_idx = (budget_df["totim"] - time_target).abs().idxmin()
+                row = budget_df.loc[closest_idx]
+                if flow == "OUT" and out_col in budget_df.columns:
+                    value = float(row[out_col])
+                elif flow == "IN" and in_col in budget_df.columns:
+                    value = float(row[in_col])
+                elif flow == "NET" and {out_col, in_col}.issubset(budget_df.columns):
+                    value = float(row[out_col] - row[in_col])
+
+            # ---------- FLOW per-zone (use zonebudget) ----------
+            else:
+                subset = data if zone == "ALL" else data[data["zone"] == zone]
+                out_col, in_col = f"{constr}-OUT", f"{constr}-IN"
+                if "totim" not in subset.columns:
+                    continue
+                closest_idx = (subset["totim"] - time_target).abs().idxmin()
+                if zone == "ALL":
+                    closest_time = subset.loc[closest_idx, "totim"]
+                    time_filtered = subset[subset["totim"] == closest_time]
+                    if flow == "OUT" and out_col in subset.columns:
+                        value = float(time_filtered[out_col].sum())
+                    elif flow == "IN" and in_col in subset.columns:
+                        value = float(time_filtered[in_col].sum())
+                    elif flow == "NET" and {out_col, in_col}.issubset(subset.columns):
+                        value = float(time_filtered[out_col].sum() - time_filtered[in_col].sum())
+                else:
+                    row = subset.loc[closest_idx]
+                    if flow == "OUT" and out_col in subset.columns:
+                        value = float(row[out_col])
+                    elif flow == "IN" and in_col in subset.columns:
+                        value = float(row[in_col])
+                    elif flow == "NET" and {out_col, in_col}.issubset(subset.columns):
+                        value = float(row[out_col] - row[in_col])
+
+            # --- store the value ---
+            if value is not None and pd.notna(value):
+                results[cid].append((Q_code, float(value)))
+
+    # --- assemble DataFrame with all results ---
+    for cid in results:
+        results[cid].sort(key=lambda x: x[0])
+    pumping_rates = sorted({x[0] for vals in results.values() for x in vals})
+    df = pd.DataFrame({"PumpingRate": pumping_rates})
+    for c in constraints:
+        cid = c["id"]
+        temp = pd.DataFrame(results.get(cid, []), columns=["PumpingRate", cid])
+        df = pd.merge(df, temp, on="PumpingRate", how="left")
+
+    # --- find threshold crossings ---
+    thresholds, crossings = {}, {}
+    for c in constraints:
+        cid = c["id"]
+        series = pd.to_numeric(df[cid], errors="coerce")
+        vals = series.dropna().values
+        if len(vals) == 0:
+            continue
+        if c["threshold_type"].upper() == "ABSOLUTE":
+            thresholds[cid] = float(c["threshold"])
+        elif c["threshold_type"].upper() == "RELATIVE":
+            ref = c["reference"] if c.get("reference") is not None else float(vals[0])
+            thresholds[cid] = float(ref) * float(c["threshold"])
+
+        crossings[cid] = find_threshold_crossing(df["PumpingRate"].values, series.values, thresholds[cid])
+
+    qs_candidates = [v for v in crossings.values() if v is not None]
+    qs_value = min(qs_candidates) if qs_candidates else None
+
+    # --- plotting ---
+    fig, ax = plt.subplots(figsize=(14, 12))
+    ax2 = ax.twinx()
+    flow_handles, head_handles = [], []
+
+    def is_head(c): return c["constrain"].upper() == "HEAD"
+
+    for c in constraints:
+        cid = c["id"]
+        color = c.get("color")
+        if is_head(c):
+            ln, = ax2.plot(df["PumpingRate"], df[cid], marker="o", label=c["label"], color=color)
+            head_handles.append(ln)
+            if cid in thresholds:
+                ax2.axhline(thresholds[cid], linestyle="--", color=ln.get_color(), label=f"{c['label']} threshold")
+        else:
+            ln, = ax.plot(df["PumpingRate"], df[cid], marker="o", label=c["label"], color=color)
+            flow_handles.append(ln)
+            if cid in thresholds:
+                ax.axhline(thresholds[cid], linestyle="--", color=ln.get_color(), label=f"{c['label']} threshold")
+
+    if qs_value is not None:
+        ax.axvline(qs_value, color="g", linestyle="--")
+        try:
+            y_top = max([h.get_ydata().max() for h in flow_handles]) if flow_handles else ax.get_ybound()[1]
+        except Exception:
+            y_top = ax.get_ybound()[1]
+        ax.text(qs_value, y_top, f"Qs < {qs_value:.2f}", color="g", fontsize=14, ha="right",
+                bbox=dict(facecolor="white", alpha=0.7))
+
+    title_suffix = f"{int(planning_horizon / conversion_factor)} {plot_units}" if plot_units == "years" else f"{planning_horizon} time units"
+    ax.set_title(f"Sustainable yield estimation - {title_suffix} after pumping")
+    ax.set_xlabel("Pumping Rate")
+    ax.set_ylabel("Flow Rate")
+    ax2.set_ylabel("Head")
+
+    # combined legend (flows + heads + thresholds)
+    handles, labels = [], []
+    for h in flow_handles + head_handles:
+        handles.append(h)
+        labels.append(h.get_label())
+    # Include hlines (thresholds) by pulling artists from both axes
+    handles_thr, labels_thr = ax.get_legend_handles_labels()
+    handles_thr2, labels_thr2 = ax2.get_legend_handles_labels()
+    # Avoid double-adding series handles already included; filter only threshold labels (contain 'threshold')
+    threshold_pairs = [(h, l) for h, l in (list(zip(handles_thr, labels_thr)) + list(zip(handles_thr2, labels_thr2))) if "threshold" in l.lower()]
+    handles += [h for h, _ in threshold_pairs]
+    labels += [l for _, l in threshold_pairs]
+
+    if handles:
+        ax.legend(handles, labels, loc="best")
+
+    ax.grid(True)
+
+    plt.savefig(os.path.join(plot_folder, plot_filename), bbox_inches="tight")
+    plt.close()
+    df.to_csv(os.path.join(output_folder, csv_filename), index=False)
+
+    return qs_value, df
+
 def update_well_ts_file(base_ts_path, setup_file, q_column, output_path):
     """
     Update a Flopy-style .ts file with new pumping rates from a given q_column in Excel.
@@ -1226,6 +1543,53 @@ def update_oc_file(base_oc_path, new_output_prefix, output_path):
 
     print(f"Updated .oc file saved at: {output_path}")
 
+def update_obs_file(base_obs_path, new_output_prefix, output_path):
+    """
+    Update output folder paths in a MODFLOW 6 .obs file.
+
+    Parameters
+    ----------
+    base_obs_path : str or Path
+        Path to the existing .obs file.
+    new_output_prefix : str
+        New folder or prefix to replace the old path before filenames,
+        e.g. "output/scenario1/".
+    output_path : str or Path
+        Path to save the updated .obs file.
+    """
+    # Read the OBS file
+    with open(base_obs_path, "r") as f:
+        lines = f.readlines()
+
+    # Ensure the prefix ends with '/'
+    if not new_output_prefix.endswith("/"):
+        new_output_prefix += "/"
+
+    # Regex pattern to match lines with FILEOUT <path>
+    # e.g., "FILEOUT  output/head_obs_t.csv"
+    pattern = re.compile(r"(FILEOUT\s+)([\w./\\-]+)")
+
+    new_lines = []
+    for line in lines:
+        match = pattern.search(line)
+        if match:
+            old_path = match.group(2)
+            filename = Path(old_path).name  # Extract "head_obs_t.csv"
+            # Replace with new prefix
+            new_line = pattern.sub(rf"\1{new_output_prefix}{filename}", line)
+            new_lines.append(new_line)
+        else:
+            new_lines.append(line)
+
+    # Write updated file
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        f.writelines(new_lines)
+
+    print(f"Updated .obs file saved at: {output_path}")
+
+
 def iterate_pumping_rate_transient_eff(setup_file, model_file, model_ws_name, model_name, 
                                         iterations_output_dir, summary_dir, 
                                         budget_file_name, zonebud_file_name, head_file_name):
@@ -1279,6 +1643,7 @@ def iterate_pumping_rate_transient_eff(setup_file, model_file, model_ws_name, mo
 
         update_well_ts_file(f"{model_ws_name}/well_rates.ts", f"{setup_file}", f"{col}", f"{model_ws_name}/well_rates.ts")
         update_oc_file(f"{model_ws_name}/{model_name}.oc", f"../sust_yield_results/yield_iterations/{col}/", f"{model_ws_name}/{model_name}.oc")
+        update_obs_file(f"{model_ws_name}/{model_name}.obs", f"../sust_yield_results/yield_iterations/{col}/", f"{model_ws_name}/{model_name}.obs")
         # Everything in the oc file is relative to the model_ws, so "../" goes to the parent folder
         sim = flopy.mf6.MFSimulation.load(sim_ws=model_ws_name, exe_name="mf6")
         subprocess.run(["mf6"], cwd=model_ws_name)
@@ -1315,9 +1680,9 @@ def iterate_pumping_rate_transient_eff(setup_file, model_file, model_ws_name, mo
                 head_obs_file = os.path.join(folder_path, head_file_name)
 
                 # Define the destination files
-                budget_dest = os.path.join(results_folder, f"{os.path.splitext(budget_file_name)[0]}_{code}.csv")
-                zonebud_dest = os.path.join(results_folder, f"{os.path.splitext(zonebud_file_name)[0]}_{code}.csv")
-                head_obs_dest = os.path.join(results_folder, f"{os.path.splitext(head_file_name)[0]}_{code}.csv")
+                budget_dest = os.path.join(results_folder, f"{os.path.splitext(budget_file_name)[0]}_it_{code}.csv")
+                zonebud_dest = os.path.join(results_folder, f"{os.path.splitext(zonebud_file_name)[0]}_it_{code}.csv")
+                head_obs_dest = os.path.join(results_folder, f"{os.path.splitext(head_file_name)[0]}_it_{code}.csv")
 
                 # Copy files if they exist
                 if os.path.exists(budget_file):

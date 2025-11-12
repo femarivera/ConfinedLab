@@ -1494,7 +1494,8 @@ def plot_transient_heads(
     output_folder: str = None,
     plot_name: str = "transient_heads.png",
     boundary_keywords=None,
-    ve: float = 10):
+    ve: float = 10,
+    interfaces: np.ndarray = None):
     """
     Plots a cross section of transient heads from a MODFLOW simulation.
 
@@ -1530,6 +1531,8 @@ def plot_transient_heads(
         List of boundary condition keywords to plot (e.g., ["RIV", "WEL", "GHB", "DRN", "CHD"]).
     ve : float
         Vertical exaggeration for the cross-section plot.
+    interfaces : np.ndarray or None
+        3D array of interface elevations (nlay, nrow, ncol) to plot on top of heads.
 
     Returns
     -------
@@ -1575,6 +1578,19 @@ def plot_transient_heads(
             if bc_color:
                 mx.plot_bc(bc, color=bc_color)
 
+    if interfaces is not None:
+        try:
+            ncol = gwf.modelgrid.ncol
+            dcol = gwf.modelgrid.delr if np.isscalar(gwf.modelgrid.delr) else np.mean(gwf.modelgrid.delr)
+            x = np.arange(ncol) * dcol
+
+            # Plot each interface
+            for k in range(interfaces.shape[0]):
+                ax.plot(x, interfaces[k, nrow, :], "k-", lw=1.0)
+
+        except Exception as e:
+            print(f"Could not plot interfaces: {e}")
+
     # --- Colorbar and labels ---
     cb = plt.colorbar(pa, ax=ax)
     cb.set_label(label)
@@ -1614,7 +1630,8 @@ def plot_transient_heads_tr(
     output_folder: str = None,
     plot_name: str = "transient_heads_tr.png",
     boundary_keywords=None,
-    ve: float = 10):
+    ve: float = 10,
+    interfaces: np.ndarray = None):
     """
     Plots a cross section of transient heads at a given time (top subplot),
     and a time series of head evolution at a given cell (bottom subplot).
@@ -1658,6 +1675,8 @@ def plot_transient_heads_tr(
         Boundary condition types to plot (e.g., ["RIV", "WEL", "GHB"]).
     ve : float
         Vertical exaggeration for the cross-section.
+    interfaces : np.ndarray or None
+        3D array of interface elevations (nlay, nrow, ncol) to plot on top of heads.
 
     Returns
     -------
@@ -1735,6 +1754,19 @@ def plot_transient_heads_tr(
             if bc_color:
                 mx.plot_bc(bc, color=bc_color)
 
+    if interfaces is not None:
+        try:
+            ncol = gwf.modelgrid.ncol
+            dcol = gwf.modelgrid.delr if np.isscalar(gwf.modelgrid.delr) else np.mean(gwf.modelgrid.delr)
+            x = np.arange(ncol) * dcol
+
+            # Plot each interface
+            for k in range(interfaces.shape[0]):
+                ax1.plot(x, interfaces[k, nrow, :], "k-", lw=1.0)
+
+        except Exception as e:
+            print(f"Could not plot interfaces: {e}")
+
     cb = fig.colorbar(pa, ax=ax1, location="right", fraction=0.03, pad=0.02)
     cb.set_label(label)
 
@@ -1783,6 +1815,7 @@ def plot_transient_heads_capture(
     plot_name: str = "transient_heads_capture.png",
     boundary_keywords=None,
     ve: float = 10,
+    interfaces: np.ndarray = None
 ):
     """
     Plots:
@@ -1827,7 +1860,8 @@ def plot_transient_heads_capture(
         List of BC packages to plot (e.g., ["RIV", "GHB", "DRN"]).
     ve : float
         Vertical exaggeration for cross-section.
-
+    interfaces : np.ndarray or None
+        3D array of interface elevations (nlay, nrow, ncol) to plot on top of heads.
     Returns
     -------
     dict
@@ -1880,6 +1914,19 @@ def plot_transient_heads_capture(
                 mx.plot_bc(bc.lower(), color=bc_color)
             except Exception:
                 pass
+
+    if interfaces is not None:
+        try:
+            ncol = gwf.modelgrid.ncol
+            dcol = gwf.modelgrid.delr if np.isscalar(gwf.modelgrid.delr) else np.mean(gwf.modelgrid.delr)
+            x = np.arange(ncol) * dcol
+
+            # Plot each interface
+            for k in range(interfaces.shape[0]):
+                ax1.plot(x, interfaces[k, nrow, :], "k-", lw=1.0)
+
+        except Exception as e:
+            print(f"Could not plot interfaces: {e}")
 
     cb = fig.colorbar(pa, ax=ax1, location="right", fraction=0.03, pad=0.02)
     cb.set_label(label)
@@ -1947,7 +1994,8 @@ def plot_residual_diffusion(
     output_folder: str = None,
     plot_name : str = "residual_diffusion.png",
     boundary_keywords=None,
-    ve: float = 10):
+    ve: float = 10,
+    interfaces: np.ndarray = None):
 
     """
     Plots the absolute residual diffusion between transient and steady-state heads
@@ -1989,6 +2037,8 @@ def plot_residual_diffusion(
         List of boundary condition keywords to plot (e.g., ["RIV", "WEL", "GHB", "DRN", "CHD"]).
     ve : float
         Vertical exaggeration for the cross-section plot.
+    interfaces : np.ndarray or None
+        3D array of interface elevations (nlay, nrow, ncol) to plot on top of heads.
     """
 
     # Determine steps
@@ -2029,6 +2079,19 @@ def plot_residual_diffusion(
             # Plot the boundary condition with the appropriate color
             if bc_color:
                 mx.plot_bc(bc, color=bc_color)
+
+    if interfaces is not None:
+        try:
+            ncol = gwf.modelgrid.ncol
+            dcol = gwf.modelgrid.delr if np.isscalar(gwf.modelgrid.delr) else np.mean(gwf.modelgrid.delr)
+            x = np.arange(ncol) * dcol
+
+            # Plot each interface
+            for k in range(interfaces.shape[0]):
+                ax.plot(x, interfaces[k, nrow, :], "k-", lw=1.0)
+
+        except Exception as e:
+            print(f"Could not plot interfaces: {e}")
 
     cb = plt.colorbar(pa, ax=ax)
     cb.set_label(label)
@@ -2072,7 +2135,8 @@ def plot_residual_diffusion_tr(
     output_folder: str = None,
     plot_name : str = "residual_diffusion_tr.png",
     boundary_keywords=None,
-    ve: float = 10):
+    ve: float = 10,
+    interfaces: np.ndarray = None,):
     """
     Plots the absolute residual diffusion between transient and steady-state heads
     both as a cross section (top subplot) and a time series at a given cell (bottom subplot).
@@ -2118,7 +2182,7 @@ def plot_residual_diffusion_tr(
     ax1, ax2 = axes
 
     # ==========================================================
-    # TOP: Original cross-section plotting (UNCHANGED)
+    # TOP: Cross section plot
     # ==========================================================
     mx = flopy.plot.PlotCrossSection(ax=ax1, model=gwf, line={"row": nrow})
     pa = mx.plot_array(array, alpha=1, masked_values=[1.0e30],
@@ -2141,6 +2205,19 @@ def plot_residual_diffusion_tr(
                     break
             if bc_color:
                 mx.plot_bc(bc, color=bc_color)
+
+    if interfaces is not None:
+        try:
+            ncol = gwf.modelgrid.ncol
+            dcol = gwf.modelgrid.delr if np.isscalar(gwf.modelgrid.delr) else np.mean(gwf.modelgrid.delr)
+            x = np.arange(ncol) * dcol
+
+            # Plot each interface
+            for k in range(interfaces.shape[0]):
+                ax1.plot(x, interfaces[k, nrow, :], "k-", lw=1.0)
+
+        except Exception as e:
+            print(f"Could not plot interfaces: {e}")
 
     cb = fig.colorbar(pa, ax=ax1, location="right", fraction=0.03, pad=0.02)
     cb.set_label(label)
@@ -2172,7 +2249,7 @@ def plot_residual_diffusion_tr(
 
     return array
 
-def tr_storage_change_rate(zonebudfile, csv_output_folder, fig_output_folder,
+def tr_storage_change_rate(csvbudfile, csv_output_folder, fig_output_folder,
                            show=False, save_csv=True, save_fig=True,
                            figsize=(14, 8), fontsize=14,
                            xlim=None, ylim=None, threshold=None, threshold_type="absolute",
@@ -2184,8 +2261,8 @@ def tr_storage_change_rate(zonebudfile, csv_output_folder, fig_output_folder,
 
     Parameters
     ----------
-    zonebudfile : str
-        Path to the zone budget CSV file. Must contain columns: 'zone', 'totim', 'STO-TOTAL'.
+    csvbudfile : str
+        Path to the budget CSV file. Must contain columns: 'time', 'STO-TOTAL'.
     csv_output_folder : str
         Folder to save processed CSV file.
     fig_output_folder : str
@@ -2216,18 +2293,18 @@ def tr_storage_change_rate(zonebudfile, csv_output_folder, fig_output_folder,
     """
 
     # Read file
-    df = pd.read_csv(zonebudfile)
+    df = pd.read_csv(csvbudfile)
 
     # Check required columns
-    required_cols = {'zone', 'totim', 'STO-TOTAL'}
+    required_cols = {'time', 'STO-TOTAL'}
     if not required_cols.issubset(df.columns):
         raise ValueError(f"Input file must contain columns: {required_cols}")
     
     # Subset from start_time onward
-    df = df[df['totim'] >= (start_time + step_size)].copy()
+    df = df[df['time'] >= (start_time + step_size)].copy()
 
     # Shift so that start_time becomes 0 (in days) and convert to years
-    df['time_since_start'] = (df['totim'] - start_time) / 360.0
+    df['time_since_start'] = (df['time'] - start_time) / 360.0
 
     # Aggregate by time (sum across all zones)
     df_total = df.groupby('time_since_start')['STO-TOTAL'].sum()
@@ -3435,7 +3512,8 @@ def response_time_array_absolute(
     fig_name="Response_time_absolute.png",
     histogram = False,
     histogram_bins = None,
-    histogram_name ="Response_time_absolute_histogram.png"
+    histogram_name ="Response_time_absolute_histogram.png",
+    interfaces=None
 ):
     """
     Compute the response time from absolute residual diffusion.
@@ -3497,6 +3575,8 @@ def response_time_array_absolute(
         Number of bins or bin edges for the histogram
     histogram_name : str, optional
         Name of the histogram plot file
+    interfaces : ndarray, optional
+        Array of interface elevations for plotting  
 
     Returns
     -------
@@ -3596,6 +3676,19 @@ def response_time_array_absolute(
             cb.set_label("Response time - MAT + VAT (years)")
             cb.set_label("Response time (years)")
 
+    if interfaces is not None:
+        try:
+            ncol = gwf.modelgrid.ncol
+            dcol = gwf.modelgrid.delr if np.isscalar(gwf.modelgrid.delr) else np.mean(gwf.modelgrid.delr)
+            x = np.arange(ncol) * dcol
+
+            # Plot each interface
+            for k in range(interfaces.shape[0]):
+                ax.plot(x, interfaces[k, nrow // 2, :], "k-", lw=1.0)
+
+        except Exception as e:
+            print(f"Could not plot interfaces: {e}")
+
     ax.set_title(f"Response time to absolute residual diffusion of {threshold} m")
     ax.set_aspect(ve)
     plt.tight_layout()
@@ -3687,7 +3780,8 @@ def response_time_array_relative(
     fig_name="Response_time_relative.png",
     histogram=False,
     histogram_bins=None,
-    histogram_name="Response_time_relative_histogram.png"):
+    histogram_name="Response_time_relative_histogram.png",
+    interfaces=None):
     """
     Compute the response time from relative residual diffusion.
 
@@ -3749,6 +3843,8 @@ def response_time_array_relative(
         Number of bins or bin edges for the histogram
     histogram_name : str, optional
         Name of the histogram plot file
+    interfaces : ndarray, optional
+        Array of interface elevations for plotting  
 
     Returns
     -------
@@ -3847,10 +3943,24 @@ def response_time_array_relative(
             if bc_color:
                 mx.plot_bc(bc, color=bc_color)
 
+    if interfaces is not None:
+        try:
+            ncol = gwf.modelgrid.ncol
+            dcol = gwf.modelgrid.delr if np.isscalar(gwf.modelgrid.delr) else np.mean(gwf.modelgrid.delr)
+            x = np.arange(ncol) * dcol
+
+            # Plot each interface
+            for k in range(interfaces.shape[0]):
+                ax.plot(x, interfaces[k, nrow // 2, :], "k-", lw=1.0)
+
+        except Exception as e:
+            print(f"Could not plot interfaces: {e}")
+
     if pa is not None:
             cb = plt.colorbar(pa, ax=ax)
             cb.set_label("Response time - MAT + VAT (years)")
             cb.set_label("Response time (years)")
+
     ax.set_title(f"Response time to {threshold_percent}% relative residual diffusion")
     ax.set_aspect(ve)
     plt.tight_layout()

@@ -105,7 +105,7 @@ constraints = [
     "reference": None,
     "neighbour_zones": None,    # ignored for HEAD
     "color": "orange",
-    "head_obs": "CAQ 1"         # REQUIRED for HEAD
+    "head_obs": "Caq1_12_400"         # REQUIRED for HEAD
 }
     ]
 

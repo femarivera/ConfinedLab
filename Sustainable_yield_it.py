@@ -16,7 +16,7 @@ from mlibs import modpump6, modgeom6 # type: ignore
 # --------------------------------------------------------------------------------------- #
 
 ITERATE = True  # Set to True to run the iteration process
-EFFICIENCY = True  # Set to True to run the efficiency-based iteration process
+EFFICIENCY = False  # Set to True to run the efficiency-based iteration process
 
 ESTIMATE = True  # Set to True to run the sustainable yield estimation
 
@@ -35,7 +35,7 @@ model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py"
 mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab"
 
 # Define a general output folder for all results of sustainable yield estimation (absolute path)
-output_folder = r'C:/Users/cmarinriver/Projects/ConfinedLab/par_results/parv_00/sust_yield_results' # Output folder for each parameter iteration results
+output_folder = r'C:/Users/cmarinriver/Projects/ConfinedLab/par_results/parv_03/sust_yield_results' # Output folder for each parameter iteration results
 
 # Define output directories for all yield iteration runs, for a summary of the yield iterations, and for generated plots (absolute paths)
 iterations_output_dir = os.path.join(output_folder, "yield_iterations")

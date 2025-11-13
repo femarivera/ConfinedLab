@@ -84,9 +84,9 @@ constraints = [
     { 
     'label': "Lateral outflow zone 3",
     'id': "ghb_3", 
-    'constrain': "GHB2-GHB",
+    'constrain': "GHB(GHB2)",
     'flow': "NET", 
-    'zone': 3, 
+    'zone': "ALL", 
     'threshold_type': "ABSOLUTE", 
     'threshold': 0,
     'reference': None, 

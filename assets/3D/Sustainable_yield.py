@@ -22,7 +22,7 @@ EFFICIENCY = True  # Set to True to run the efficiency-based iteration process
 
 ESTIMATE = True  # Set to True to run the sustainable yield estimation
 
-planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 25000, 50000] # In years
+planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 30000, 40000, 50000] # In years
 pump_start = 3600000 # In model totim units (days)
 
 # --------------------------------------------------------------------------------------- #

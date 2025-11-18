@@ -9,7 +9,9 @@ import sys
 import matplotlib.pyplot as plt
 
 # Import local modules
-sys.path.append('..')
+# Set path to parent dir containing mlibs modules (absolute path)
+mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab"
+sys.path.append(mlibs_path)
 from mlibs import modpump6 # type: ignore
 
 # --------------------------------------------------------------------------------------- #
@@ -26,15 +28,12 @@ PLOT = True  # Set to True to plot the results after all iterations
 # --------------------------------------------------------------------------------------- #
 
 # Set paths to setup add model files (absolute paths)
-model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py" # Absolute paths
-setup_file = "C:/Users/cmarinriver/Projects/ConfinedLab/setup.xlsx" # Absolute paths
-sust_yield_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Sustainable_yield.py" # Absolute paths
+model_file = "Model.py" 
+setup_file = "setup.xlsx" 
+sust_yield_file = "Sustainable_yield.py" 
 
-# Set path to parent dir containing mlibs modules (absolute path)
-mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab" # Absolute paths
-
-# Define a general output folder for all results of the parameter analysis (absolute path)
-output_folder = "C:/Users/cmarinriver/Projects/ConfinedLab/par_results" # Absolute paths
+# Define a general output folder for all results of the parameter analysis
+output_folder = "par_results" 
 
 # Define the parameter to analyze (must be in the parameter_analysis sheet of the setup file)
 parameter = "kv_01"
@@ -48,9 +47,11 @@ if ITERATE:
     # --------------------------------------------------------------------------------------- #
     # ------------------------------- PREPARE ITERATION FILE -------------------------------- #
     # --------------------------------------------------------------------------------------- #
-
+    setup_file = os.path.abspath(setup_file)
+    model_file = os.path.abspath(model_file)
+    output_folder = os.path.abspath(output_folder)
+    sust_yield_file = os.path.abspath(sust_yield_file)
     os.makedirs(output_folder, exist_ok=True)
-
     folder, filename = os.path.split(sust_yield_file)
     name, ext = os.path.splitext(filename)
     new_filename = f"{name}_it{ext}"
@@ -91,6 +92,7 @@ if ITERATE:
 
         setup_replaced = False
         output_folder_repaced = False
+        model_file_replaced = False
         for i, line in enumerate(lines):
             if "sys.path.append('..')" in line:
                 lines[i] = f"sys.path.append(r'{mlibs_path}')\n"
@@ -100,6 +102,9 @@ if ITERATE:
             if not output_folder_repaced and line.strip().startswith("output_folder ="):
                 lines[i] = f"output_folder = r'{output_folder}/{col}/sust_yield_results' # Output folder for each parameter iteration results\n"
                 output_folder_repaced = True
+            if not model_file_replaced and line.strip().startswith("model_file ="):
+                lines[i] = f"model_file = r'{model_file}' # Model file path\n"
+                model_file_replaced = True
 
         # Save back the modified file
         with open(new_file_path, "w") as f:

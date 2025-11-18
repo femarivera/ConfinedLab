@@ -339,12 +339,12 @@ if STEADY:
     ims = flopy.mf6.ModflowIms(sim, pname="ims",
                             print_option="SUMMARY",
                             complexity="COMPLEX",
-                            outer_dvclose=0.0001,
-                            outer_maximum=1000,
+                            outer_dvclose=0.001,
+                            outer_maximum=500,
                             under_relaxation="NONE",
-                            inner_maximum=1000,
-                            inner_dvclose=0.0001,
-                            rcloserecord=0.0001,
+                            inner_maximum=500,
+                            inner_dvclose=0.001,
+                            rcloserecord=0.01,
                             linear_acceleration="BICGSTAB",
                             scaling_method="NONE",
                             reordering_method="NONE",
@@ -383,7 +383,7 @@ if STEADY:
         head_filerecord = f"output/{model_name}.hds",
         budget_filerecord = f"output/{model_name}.cbb",
         budgetcsv_filerecord = f"output/{model_name}_budget.csv",
-        saverecord = [("HEAD", "ALL"), ("BUDGET", "LAST")],
+        saverecord = [("HEAD", "LAST"), ("BUDGET", "LAST")],
         printrecord = [("HEAD", "LAST"),("BUDGET", "LAST")], 
         filename = f"{model_name}.oc")
 
@@ -466,8 +466,8 @@ if STEADY:
                                 filename = f"{model_name}.wel")
 
     # General Head Boundary package
-    zone_layers = np.where(zone_array == 3)[0] # Layers corresponding to a specific zone of interest
-    other_layers = np.setdiff1d(np.arange(nlay), zone_layers)
+    zone_layers = np.arange(10, 15)      # layers 10, 11, 12, 13, 14 (pumped aquifer)
+    other_layers = np.setdiff1d(np.arange(25), zone_layers)
 
     # --- GHB1: all layers except zone layers
     ghb_spd1 = {0: [((ilay, irow, ncol-1),

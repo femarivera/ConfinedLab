@@ -67,7 +67,7 @@ TRANSIENT = True # Builds and runs a transient simulation (replaces gwf object)
 post_steady = True # Postprocess steady state outputs
 iterate = False # Iterates pumping rates over steady state model files
 
-post_transient = False # Postprocess transient outputs
+post_transient = True # Postprocess transient outputs
 response_times = False # Estimates response times from model transient files
 animate = False # Animates transient cross sections
 plot_maps = True # If True, plots map views of heads and flows
@@ -465,7 +465,7 @@ if STEADY:
                                 stress_period_data = wel_spd, 
                                 filename = f"{model_name}.wel")
 
-    # General head boundary package
+    # General Head Boundary package
     # GHB in the lateral outflow
     ghb_1 = ztop_array[0,0,ncol-1] # Head in the GHB
     ghb_spd1 = {}
@@ -652,11 +652,6 @@ if post_steady:
                                       colorbar=False,
                                       interfaces=interfaces)      
     
-    # Plot heads with im.show
-    #masked_head = np.where(idomain == 0, np.nan, head)
-    #plt.imshow(masked_head[:,0,:], aspect=300, interpolation=None)
-    #plt.colorbar()
-    #plt.show()
     # ----------------------------------------------------------------------------- #
     # -------------------------- ITERATION PUMPING RATES -------------------------- #
     # ----------------------------------------------------------------------------- #

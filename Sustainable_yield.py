@@ -8,7 +8,9 @@ import pandas as pd
 import numpy as np
 
 # Import local modules
-sys.path.append('..')
+# Set path to parent dir containing mlibs modules (absolute path)
+mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab"
+sys.path.append(mlibs_path)
 from mlibs import modpump6, modgeom6 # type: ignore
 
 # --------------------------------------------------------------------------------------- #
@@ -20,22 +22,19 @@ EFFICIENCY = True  # Set to True to run the efficiency-based iteration process
 
 ESTIMATE = True  # Set to True to run the sustainable yield estimation
 
-planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 50000] # In years
+planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 25000, 50000] # In years
 pump_start = 3600000 # In model totim units (days)
 
 # --------------------------------------------------------------------------------------- #
 # ------------------------------- INPUTS ITERATION -------------------------------------- #
 # --------------------------------------------------------------------------------------- #
 
-# Set paths to setup add model files (absolute paths)
-setup_file = "C:/Users/cmarinriver/Projects/ConfinedLab/setup.xlsx" 
-model_file = "C:/Users/cmarinriver/Projects/ConfinedLab/Model.py"
+# Set paths to setup add model files
+setup_file = "setup.xlsx" 
+model_file = "Model.py"
 
-# Set path to parent dir containing mlibs modules (absolute path)
-mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab"
-
-# Define a general output folder for all results of sustainable yield estimation (absolute path)
-output_folder = "C:/Users/cmarinriver/Projects/ConfinedLab/sust_yield_results"
+# Define a general output folder for all results of sustainable yield estimation
+output_folder = "sust_yield_results"
 
 # Define output directories for all yield iteration runs, for a summary of the yield iterations, and for generated plots (absolute paths)
 iterations_output_dir = os.path.join(output_folder, "yield_iterations")
@@ -105,7 +104,7 @@ constraints = [
     "reference": None,
     "neighbour_zones": None,    # ignored for HEAD
     "color": "orange",
-    "head_obs": "CAQ1_12_400"         # REQUIRED for HEAD
+    "head_obs": "CAQ1_12_400_100"         # REQUIRED for HEAD
 }
     ]
 

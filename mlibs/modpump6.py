@@ -424,6 +424,7 @@ def iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, iteration
     # --------------------------------------------------------------------------------------- #
     # ------------------------------- PREPARE ITERATION FILE -------------------------------- #
     # --------------------------------------------------------------------------------------- #
+    model_file = os.path.abspath(model_file)
     folder, filename = os.path.split(model_file)
     name, ext = os.path.splitext(filename)
     new_filename = f"{name}_it{ext}"
@@ -441,7 +442,7 @@ def iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, iteration
         if "sys.path.append('..')" in line:
             lines[i] = f"sys.path.append(r'{mlibs_path}')\n"
         if not setup_replaced and line.strip().startswith("setup_file ="):
-            lines[i] = f"setup_file = r'{setup_file}' # Excel file containing model setup parameters\n"
+            lines[i] = f"setup_file = r'{os.path.abspath(setup_file)}'\n" # Excel file containing model setup parameters\n"
             setup_replaced = True
 
     # Save back the modified file
@@ -484,12 +485,6 @@ def iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, iteration
         # Write updated wells sheet back to Excel (overwrite only that sheet)
         with pd.ExcelWriter(setup_file, mode="a", if_sheet_exists="replace") as writer:
             merged.to_excel(writer, sheet_name="wells", index=False)
-
-        # --- Run your model here ---
-        # run_model(setup_file)
-
-        # --- Optionally, save results tagged by iteration ---
-        # save_results(iteration=i)
 
         # --------------------------------------------------------------------------------------- #
         # ------------------------------- ITERATE MODEL ----------------------------------------- #
@@ -1156,6 +1151,8 @@ def estimate_sustainable_yield(
     import matplotlib.pyplot as plt
     from typing import Optional
 
+    output_folder = os.path.abspath(output_folder)
+
     os.makedirs(output_folder, exist_ok=True)
     os.makedirs(plot_folder, exist_ok=True)
 
@@ -1588,7 +1585,6 @@ def update_obs_file(base_obs_path, new_output_prefix, output_path):
         f.writelines(new_lines)
 
     print(f"Updated .obs file saved at: {output_path}")
-
 
 def iterate_pumping_rate_transient_eff(setup_file, model_file, model_ws_name, model_name, 
                                         iterations_output_dir, summary_dir, 

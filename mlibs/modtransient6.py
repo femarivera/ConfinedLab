@@ -20,10 +20,10 @@
 
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.cm import get_cmap
 import numpy as np
 import os
 import sys
-import imageio
 import flopy
 
 from scipy.optimize import curve_fit
@@ -1539,7 +1539,7 @@ def plot_transient_heads(
     array : np.ndarray
         2D head array (cross-section) plotted.
     """
-
+    
     # --- Determine timestep index ---
     step = timestep_index_from_totim(perioddata, time)[0]
 
@@ -1631,7 +1631,8 @@ def plot_transient_heads_tr(
     plot_name: str = "transient_heads_tr.png",
     boundary_keywords=None,
     ve: float = 10,
-    interfaces: np.ndarray = None):
+    interfaces: np.ndarray = None, 
+    surface: bool = False):
     """
     Plots a cross section of transient heads at a given time (top subplot),
     and a time series of head evolution at a given cell (bottom subplot).
@@ -1677,6 +1678,8 @@ def plot_transient_heads_tr(
         Vertical exaggeration for the cross-section.
     interfaces : np.ndarray or None
         3D array of interface elevations (nlay, nrow, ncol) to plot on top of heads.
+    surface : bool
+        Whether to plot layer surfaces with gradient colors.
 
     Returns
     -------
@@ -1754,6 +1757,17 @@ def plot_transient_heads_tr(
             if bc_color:
                 mx.plot_bc(bc, color=bc_color)
 
+    # Plot surface for each layer with a gradient of blues
+    if surface:
+        cmap = get_cmap("Blues")
+        num_layers = array.shape[0]
+        layer_colors = []  # Store colors for legend
+        for layer in range(num_layers):
+            # Assign a color based on the layer index
+            color = cmap((layer + 1) / num_layers)  # Normalize the layer index
+            mx.plot_surface(array[layer, :, :], color=color, lw=1)
+            layer_colors.append((color, f"Layer {layer + 1}"))
+
     if interfaces is not None:
         try:
             ncol = gwf.modelgrid.ncol
@@ -1777,11 +1791,11 @@ def plot_transient_heads_tr(
     # BOTTOM: Time series
     # ==============================
     ax2.plot(times_subset, head_series, color="black", lw=1.5)
-    ax2.axvline(int((time - start_time)/360), color="red", linestyle="--", lw=1.5)
+    ax2.axvline((time - start_time)/360, color="red", linestyle="--", lw=1.5)
     ax2.set_ylabel(label)
     ax2.set_xlabel("Time [years]")
     ax2.grid(True, linestyle=":", alpha=0.6)
-    ax2.set_title(f"Hydraulic head at pumping well location")
+    ax2.set_title(f"Hydraulic head at cell (L{lay}, R{row}, C{col})")
 
     plt.tight_layout()
 
@@ -2232,7 +2246,7 @@ def plot_residual_diffusion_tr(
     ax2.axvline((time - (start_time or 0)) / 360, color="red", linestyle="--", lw=1.5)
     ax2.set_xlabel("Time [years]")
     ax2.set_ylabel(label)
-    ax2.set_title(f"Residual diffusion at pumping well location")
+    ax2.set_title(f"Residual diffusion at cell (L{lay}, R{row}, C{col})")
     ax2.grid(True, linestyle=":", alpha=0.6)
 
     plt.tight_layout()
@@ -2749,10 +2763,10 @@ def absolute_head_diffusion_zones(transient_heads,
             t_cross_p_95 = time_in_years[idx]
             p_95_value = p_95[idx]
             if bounds == "95p":
-                ax.scatter(t_cross_p_95, p_95_value, color="green", s=50, zorder=5)
-                ax.axvline(t_cross_p_95, color="green", linestyle=":", linewidth=1.5)
+                ax.scatter(t_cross_p_95, p_95_value, color="red", s=50, zorder=5)
+                ax.axvline(t_cross_p_95, color="red", linestyle=":", linewidth=1.5)
                 ax.text(1.01*t_cross_p_95, ax.get_ylim()[1]*0.9, f"tr={int(round(t_cross_p_95))} yr",
-                        color="green", rotation=0, va='top', fontweight='bold')
+                        color="red", rotation=0, va='top', fontweight='bold')
             
         # Max response time
         t_cross_max = time_in_years[-1]  # initialize as the max time step
@@ -2982,10 +2996,10 @@ def absolute_head_diffusion(transient_heads,
         t_cross_p_95 = time_in_years[idx]
         p_95_value = p_95[idx]
         if bounds == "95p":
-            ax.scatter(t_cross_p_95, p_95_value, color="green", s=50, zorder=5)
-            ax.axvline(t_cross_p_95, color="green", linestyle=":", linewidth=1.5)
+            ax.scatter(t_cross_p_95, p_95_value, color="red", s=50, zorder=5)
+            ax.axvline(t_cross_p_95, color="red", linestyle=":", linewidth=1.5)
             ax.text(1.01*t_cross_p_95, ax.get_ylim()[1]*0.9, f"tr={int(round(t_cross_p_95))} yr",
-                    color="green", rotation=0, va='top', fontweight='bold')
+                    color="red", rotation=0, va='top', fontweight='bold')
         
     # Max response time
     t_cross_max = time_in_years[-1]  # initialize as the max time step
@@ -3217,10 +3231,10 @@ def relative_head_diffusion_zones(transient_heads,
             t_cross_p_95 = time_in_years[idx]
             p_95_value = p_95[idx]
             if bounds == "95p":
-                ax.scatter(t_cross_p_95, p_95_value, color="green", s=50, zorder=5)
-                ax.axvline(t_cross_p_95, color="green", linestyle=":", linewidth=1.5)
+                ax.scatter(t_cross_p_95, p_95_value, color="red", s=50, zorder=5)
+                ax.axvline(t_cross_p_95, color="red", linestyle=":", linewidth=1.5)
                 ax.text(1.01*t_cross_p_95, ax.get_ylim()[1]*0.9, f"tr={int(round(t_cross_p_95))} yr",
-                        color="green", rotation=0, va='top', fontweight='bold')
+                        color="red", rotation=0, va='top', fontweight='bold')
             
         # Max response time
         t_cross_max = time_in_years[-1]  # initialize as the max time step
@@ -3450,10 +3464,10 @@ def relative_head_diffusion(transient_heads,
         t_cross_p_95 = time_in_years[idx]
         p_95_value = p_95[idx]
         if bounds == "95p":
-            ax.scatter(t_cross_p_95, p_95_value, color="green", s=50, zorder=5)
-            ax.axvline(t_cross_p_95, color="green", linestyle=":", linewidth=1.5)
+            ax.scatter(t_cross_p_95, p_95_value, color="red", s=50, zorder=5)
+            ax.axvline(t_cross_p_95, color="red", linestyle=":", linewidth=1.5)
             ax.text(1.01*t_cross_p_95, ax.get_ylim()[1]*0.9, f"tr={int(round(t_cross_p_95))} yr",
-                    color="green", rotation=0, va='top', fontweight='bold')
+                    color="red", rotation=0, va='top', fontweight='bold')
         
     # Max response time
     t_cross_max = time_in_years[-1]  # initialize as the max time step
@@ -3476,7 +3490,9 @@ def relative_head_diffusion(transient_heads,
     xlim_right = min(2 * t_cross_max, time_in_years[-1])
     ax.set_xlim(0, xlim_right)
     ax.legend()
+    ax.set_autoscale_on(False) 
     plt.tight_layout()
+
 
 	# Save figure			 
     if save_fig:

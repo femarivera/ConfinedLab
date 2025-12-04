@@ -9,7 +9,7 @@ import numpy as np
 
 # Import local modules
 # Set path to parent dir containing mlibs modules (absolute path)
-mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab"
+mlibs_path = "/srv/common/deesac/ConfinedLab"
 sys.path.append(mlibs_path)
 from mlibs import modpump6, modgeom6 # type: ignore
 

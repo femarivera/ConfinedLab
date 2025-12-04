@@ -1,17 +1,17 @@
 # ==========================================================================================
-#  Model.py - MODFLOW 6 Model Setup, Execution Script, Post-Processing and Analysis
+#  Model.py - MODFLOW 6 Flow Model Setup, Execution, Post-Processing and Analysis Script
 # ==========================================================================================
 #
 #  Author: MARIN RIVERA Carlos Felipe
 #  Organization: Bordeaux INP, Lab EPOC, Université de Bordeaux
-#  Project: Funded by the OneWater PEPR DEESAC Project
+#  Project: OneWater PEPR DEESAC Project
 #
 #  DESCRIPTION:
 #  ------------
-#  This script sets up, runs, and analyzes MODFLOW 6 groundwater flow model of a synthetic
+#  This script sets up, runs, and analyzes a MODFLOW6 groundwater flow model of a synthetic
 #  multilayer aquifer system for the ConfinedLab project. It integrates model construction,  
 #  steady state and transient simulation, and post-processing utilities for flow and budget 
-#  analysis.
+#  analysis using FloPY utilities and custom modules.
 #
 #  USAGE:
 #  ------
@@ -33,7 +33,6 @@ import flopy
 from pprint import pformat
 
 # Plot settings
-#matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 plt.rc('font', family='serif', size=9)
 sgcol_width = 9/2.54
@@ -58,17 +57,18 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # --------------------------- MODEL RUN CONTROL --------------------------------- #
 # ------------------------------------------------------------------------------- #
 
-# ----------------------------------- RUN OPTIONS ------------------------------- #
-LOAD_MODEL = False # Loads an existing model to postprocess
+# --------------------------- LOAD OR RUN OPTIONS ------------------------------- #
+LOAD_MODEL = False # Loads an existing model to postprocess.
+
 STEADY = True # Builds and runs a steady state simulation
-TRANSIENT = True # Builds and runs a transient simulation (replaces gwf object)
+TRANSIENT = True # Builds and runs a transient simulation
 
 # ------------------------------- POSTPROCESS OPTIONS --------------------------- #
 post_steady = True # Postprocess steady state outputs
 iterate = False # Iterates pumping rates over steady state model files
 
 post_transient = True # Postprocess transient outputs
-response_times = False # Estimates response times from model transient files
+response_times = True # Estimates response times from model transient files
 animate = False # Animates transient cross sections
 plot_maps = True # If True, plots map views of heads and flows
 
@@ -83,9 +83,6 @@ else:
     boundary_keywords = ["GHB", "WEL", "DRN"]
 
 heterogeneity = False # If True, generates random hydraulic conductivity fields
-
-soil_layer = False # If True, adds a soil layer at the top of the model
-soil_thickness = 5.0 # Thickness of the soil layer in meters
 
 # ------------------------------------------------------------------------------- #
 # --------------------------------- MODEL SETUP --------------------------------- #
@@ -105,29 +102,10 @@ os.makedirs(figure_folder, exist_ok=True)
 os.makedirs(gis_folder, exist_ok=True)
 
 # ------------------------------------------------------------------------------- #
-# ------------------------------ MODEL PARAMETERS ------------------------------- #
-# ------------------------------------------------------------------------------- #
-
-# Set model hydraulic parameters from setup file
-par_df = pd.read_excel(setup_file, sheet_name="parameters", index_col=0)
-def par_df_to_1Darray(df, prefix):
-    subset = df[df.index.str.startswith(prefix)]
-    subset = subset.sort_index()  # Ensure correct order
-    return subset["value"].to_numpy()
-kh = par_df_to_1Darray(par_df, "kh") # Horizontal hydraulic conductivity in m/d
-kv = par_df_to_1Darray(par_df, "kv") # Vertical hydraulic conductivity in m/d
-sy = par_df_to_1Darray(par_df, "sy") # Specific yield (adimensional)
-ss = par_df_to_1Darray(par_df, "ss") # Specific storage (m-1)
-drn_cond = par_df_to_1Darray(par_df, "drn_cond") # Hydraulic conductivity of drain bed (m/d) used to compute conductance
-recharge = par_df_to_1Darray(par_df, "rech") # Recharge (m/d)
-
-well_df = pd.read_excel(setup_file, sheet_name="wells")
-q0 = well_df.loc[1, "q"]
-# ------------------------------------------------------------------------------- #
 # --------------------------- STRUCTURED GRID GENERATION ------------------------ #
 # ------------------------------------------------------------------------------- #
 
-# Set model grid 
+# Set model grid parameters from set up file
 grid_df = pd.read_excel(setup_file, sheet_name="grid")
 nlay = int(grid_df["nlay"][0]) # Number of layers
 ncol = int(grid_df["ncol"][0]) # Number of columns
@@ -141,35 +119,70 @@ drow = int(grid_df["drow"][0]) # Row size in meters
 # --------------------------- GEOMETRY GENERATION ------------------------------- #
 # ------------------------------------------------------------------------------- #
 
-# Set synthetic geometry generation parameters
+# Build synthetic geometry from setup file parameters
 geom_df = pd.read_excel(setup_file, sheet_name="geometry")
 outcrop_z = geom_df["outcrop_z"].to_numpy() # Elevation (Just used when SLOPE is set to False)
 outcrop_zmax = geom_df["outcrop_zmax"].to_numpy() # Elevation (Just used when SLOPE are set to True)
 outcrop_zmin = geom_df["outcrop_zmin"].to_numpy() # Elevation (Just used when SLOPE are set to True)
-base_thicknesses = geom_df["base_thicknesses"].to_numpy() # Layer thickness in meters
+base_thicknesses = geom_df["base_thicknesses"].to_numpy() # Maximum layer thickness in meters
 outcrop_cells = geom_df["outcrop_cells"].to_numpy() # Cell ID where the unit starts outcropping (measured from left to right)
 zones = geom_df["zone"].to_numpy() # Zone ID for each layer
-
-# Create idomain, irch and recharge arrays
 epsilon = float(geom_df["epsilon"].iloc[0]) # Minimum allowed cell thickness in meters
-transition = int(geom_df["transition_cells"].iloc[0]) # Transitions cells
+transition = int(geom_df["transition_cells"].iloc[0]) # Transition cells for layer thickness and top elevation changes
+
+# Create initial idomain based on layer outcrop and confined areas
 idomain = modgeom6.compute_idomain(nlay, nrow, ncol, outcrop_cells)
-ztop = modgeom6.compute_top(idomain, outcrop_z, transition=True, slope=True,
+
+# Create topography 2D array, thickness 3D array, zbot 3D array
+topo = modgeom6.compute_top(idomain, outcrop_z, transition=True, slope=True,
                             transition_cells=transition, transition_type="contain", 
                             outcrop_zmin=outcrop_zmin, outcrop_zmax=outcrop_zmax)
 thickness_array = modgeom6.compute_thickness(idomain, base_thicknesses, 
                                              transition=True, transition_type="extend", 
                                              transition_cells=transition)
-zbot = modgeom6.compute_bottom(ztop, thickness_array)
-interfaces = np.concatenate(([ztop], zbot), axis=0)
+zbot = modgeom6.compute_bottom(topo, thickness_array)
+
+# Create ztop 3D array (top elevation for each cell)
+ztop = modgeom6.compute_ztop_array(topo, zbot)
+
+# Create geological interfaces array for plotting
+interfaces = np.concatenate(([topo], zbot), axis=0)
+
+# Update idomain as needed (deactivate thin cells or specific layers,zones for example)
 idomain = modgeom6.idomain_from_thickness(thickness_array, epsilon)
-ztop_array = modgeom6.compute_ztop_array(ztop, zbot)
+
+# Create zones 3D array for zonal budget
+zone_array = modgeom6.compute_3Darray(zones, nlay, nrow, ncol, dtype = int)
+
+# ------------------------------------------------------------------------------- #
+# ------------------------------ MODEL PARAMETERS ------------------------------- #
+# ------------------------------------------------------------------------------- #
+
+# Set model hydraulic parameters per layer from setup file
+par_df = pd.read_excel(setup_file, sheet_name="parameters", index_col=0)
+
+# Get parameters per layer as 1D arrays (size nlay)
+kh = modpar6.par_df_to_1Darray(par_df, "kh") # Horizontal hydraulic conductivity in m/d
+kv = modpar6.par_df_to_1Darray(par_df, "kv") # Vertical hydraulic conductivity in m/d
+sy = modpar6.par_df_to_1Darray(par_df, "sy") # Specific yield (adimensional)
+ss = modpar6.par_df_to_1Darray(par_df, "ss") # Specific storage (m-1)
+drn_cond = modpar6.par_df_to_1Darray(par_df, "drn_cond") # Hydraulic conductivity of drain bed (m/d)
+recharge = modpar6.par_df_to_1Darray(par_df, "rech") # Recharge (m/d)
+
+# Create 3D hydraulic parameter arrays
+kh_array = modgeom6.compute_3Darray(kh, nlay, nrow, ncol)
+kv_array = modgeom6.compute_3Darray(kv, nlay, nrow, ncol)
+ss_array = modgeom6.compute_3Darray(ss, nlay, nrow, ncol)
+sy_array = modgeom6.compute_3Darray(sy, nlay, nrow, ncol)
+
+# Create irch and recharge 2D arrays 
 irch = modgeom6.compute_irch(idomain)
 R_array = modgeom6.compute_recharge(irch, recharge)
-zone_array = modgeom6.compute_3Darray(zones, idomain, dtype = int)
-kh_array = modgeom6.compute_3Darray(kh, idomain)
-kv_array = modgeom6.compute_3Darray(kv, idomain)
-unconfined_areas = modgeom6.compute_unconfined_areas(irch, idomain)
+
+# Set well locations and pumping rates for transient and steady state simulations
+well_st_df = pd.read_excel(setup_file, sheet_name="wells_st") # Well locations and steady state pumping rates
+q0 = well_st_df["q"].sum() # Get the total steady state pumping rate for reference
+well_df = pd.read_excel(setup_file, sheet_name="wells") # Well locations and transient pumping rates
 
 # ------------------------------------------------------------------------------- #
 # ----------------------- RANDOM PARAMETER FIELDS ------------------------------- #
@@ -203,7 +216,7 @@ if heterogeneity:
                                         param_type="K", seed=4)
 
     kh_array = modpar6.stack_fields_to_3D([kh0, kh1, kh2, kh3, kh4], nlay, nrow, ncol)
-    kv_array = kh_array / 10  # Assume kv is one-tenth of kh
+    kv_array = kh_array  # Assume no anisotropy
 
 # ------------------------------------------------------------------------------- #
 # ----------------------- LAYER SUBDIVISION ------------------------------------- #
@@ -212,65 +225,60 @@ if subdivide_layers:
 
     nsub = geom_df["nsub"].to_list() # Number of subdivisions per layer
 
-    #Subdivide layers
-    nlay, idomain, ztop_array, zbot = modgeom6.subdivide_layers(idomain, ztop_array, zbot, nsub)
+    # Subdivide layers: get new nlay, and idomain, ztop, zbot, and thickness 3D arrays
+    nlay, idomain, ztop, zbot, thickness_array = modgeom6.subdivide_layers(idomain, ztop, zbot, nsub)
 
-    # Subdivide 1D arrays (size nlay)
+    # Update idomain as needed (deactivate thin cells or specific layers for example)
+    idomain = modgeom6.idomain_from_thickness(thickness_array, epsilon)
+
+    # Subdivide 1D arrays (new size nlay)
     kh = modgeom6.subdivide_array(kh, nsub)
     kv = modgeom6.subdivide_array(kv, nsub)
     sy = modgeom6.subdivide_array(sy, nsub)
     ss = modgeom6.subdivide_array(ss, nsub)
     drn_cond = modgeom6.subdivide_array(drn_cond, nsub)
-    base_thicknesses = modgeom6.subdivide_array(base_thicknesses, nsub)
     recharge = modgeom6.subdivide_array(recharge, nsub)
 
-    # Subdivide 3D arrays (size nlay, nrow, ncol)
+    # Subdivide 3D arrays (new size nlay, nrow, ncol)
     zone_array = modgeom6.subdivide_array(zone_array, nsub)
     kh_array = modgeom6.subdivide_array(kh_array, nsub)
     kv_array = modgeom6.subdivide_array(kv_array, nsub)
-    unconfined_areas = modgeom6.subdivide_array(unconfined_areas, nsub)
+    ss_array = modgeom6.subdivide_array(ss_array, nsub)
+    sy_array = modgeom6.subdivide_array(sy_array, nsub)
 
-    #Update thickness, irch, R_array, zone_array and kh_array
-    thickness_array = ztop_array - zbot
+    # Compute storage coefficient, sto_cell_type, transmissivity, and diffusivity 3D arrays
+    sy_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-1) # List of top most active cells
+    storage_coeff = modgeom6.storage_coefficient(sy_cells, idomain, ss_array, sy_array, thickness_array)
+    sto_cell_type = modgeom6.storage_cell_type(sy_cells, idomain)
+    transmissivity = kh_array * thickness_array
+    diffusivity = np.where(idomain==1, transmissivity / storage_coeff, np.nan)
+
+    # Recompute irch and recharge 2D arrays
     irch = modgeom6.compute_irch(idomain)
     R_array = modgeom6.compute_recharge(irch, recharge)
 
-    # Compute storage coefficient array, transmissivity, and diffusivity
-    storage_coeff = modgeom6.compute_storage_coefficient(unconfined_areas, sy, ss, thickness_array)
-    transmissivity = kh_array * thickness_array
-    diffusivity = transmissivity / storage_coeff
-
 # ------------------------------------------------------------------------------- #
-# -------------------------- ADD SOIL LAYER ------------------------------------- #
+# -------------------------- RESPONSE TIME PARAMETERS --------------------------- #
 # ------------------------------------------------------------------------------- #
-if soil_layer:
-    ztop_array, zbot, idomain, nlay = modgeom6.insert_soil_layer(ztop_array, zbot, idomain, soil_thickness=5.0)
-    
-    # --- Expand 1D parameter arrays (assign soil-layer values) ---
-    kh = modgeom6.add_top_value(kh, 50)    
-    kv = modgeom6.add_top_value(kv, 50)
-    sy = modgeom6.add_top_value(sy, 0.15)
-    ss = modgeom6.add_top_value(ss, 1e-5)
-    drn_cond = modgeom6.add_top_value(drn_cond, 1)
-    base_thicknesses = modgeom6.add_top_value(base_thicknesses, soil_thickness)
-    recharge = modgeom6.add_top_value(recharge, recharge[0])
 
-    # --- Expand 3D parameter arrays (assign soil-layer values) ---
-    zone_array = modgeom6.add_top_layer(zone_array, np.full((nrow, ncol), 0))
-    kh_array = modgeom6.add_top_layer(kh_array, np.full((nrow, ncol), 50))
-    kv_array = modgeom6.add_top_layer(kv_array, np.full((nrow, ncol), 50))
-    unconfined_areas = modgeom6.add_top_layer(unconfined_areas, np.full((nrow, ncol), 1))
+# Read response time parameters from setup file
+response_df = pd.read_excel(setup_file, sheet_name="response_times")
 
-    # --- Recompute dependent quantities ---
-    thickness_array = ztop_array - zbot
-    irch = np.full((nrow, ncol), 0) # Soil layer becomes the outcropping one
-    R_array = modgeom6.compute_recharge(irch, recharge)
+# Convert the sheet into a dictionary: {parameter_name: value}
+params = response_df.set_index('Parameter')['value'].to_dict()
 
-    storage_coeff = modgeom6.compute_storage_coefficient(
-        unconfined_areas, sy, ss, thickness_array
-    )
-    transmissivity = kh_array * thickness_array
-    diffusivity = transmissivity / storage_coeff
+# Convert values to appropriate types (Defaults provided)
+stability_threshold = float(params.get('stability_threshold', 0.0005))
+start = int(params.get('start', 0))
+start_step = int(params.get('start_step', 1))
+threshold_absolute = float(params.get('threshold_absolute', 0.01))
+threshold_percent = float(params.get('threshold_percent', 5))
+step = int(params.get('step', 1))
+n = int(params.get('n', 100))
+
+# For histogram_bins, handle empty cells as None
+histogram_bins_raw = params.get('histogram_bins')
+histogram_bins = int(histogram_bins_raw) if pd.notna(histogram_bins_raw) else None
 
 # ------------------------------------------------------------------------------- #
 # ----------------------------- LOAD EXISTING SIMULATION ------------------------ #
@@ -339,11 +347,12 @@ if STEADY:
     ims = flopy.mf6.ModflowIms(sim, pname="ims",
                             print_option="SUMMARY",
                             complexity="COMPLEX",
-                            outer_dvclose=0.0001,
-                            outer_maximum=1000,
-                            under_relaxation="NONE",
-                            inner_maximum=1000,
-                            inner_dvclose=0.0001,
+                            outer_dvclose=0.00001,
+                            outer_maximum=500,
+                            under_relaxation="SIMPLE",
+                            under_relaxation_gamma=0.2,
+                            inner_maximum=500,
+                            inner_dvclose=0.00001,
                             rcloserecord=0.0001,
                             linear_acceleration="BICGSTAB",
                             scaling_method="NONE",
@@ -356,13 +365,13 @@ if STEADY:
     dis = flopy.mf6.ModflowGwfdis(gwf, 
                                 nlay=nlay, nrow=nrow, ncol=ncol, 
                                 delr=dcol, delc=drow, 
-                                top=ztop, botm=zbot, idomain=idomain,
+                                top=topo, botm=zbot, idomain=idomain,
                                 filename=f"{model_name}.dis")
 
     # Set the initial conditions 
     ic = flopy.mf6.ModflowGwfic(gwf, 
                                 pname = "ic", 
-                                strt = np.repeat(ztop[np.newaxis, :, :], nlay, axis=0),
+                                strt = np.repeat(topo[np.newaxis, :, :], nlay, axis=0),
                                 filename=f"{model_name}.ic")
 
     # Set the Node Property Flow package
@@ -371,10 +380,10 @@ if STEADY:
                                 save_specific_discharge = True,
                                 save_flows= True,
                                 save_saturation= True,
-                                icelltype=1, # modgeom6.subdivide_array(np.array([1, 1, 1, 1, 1]), nsub), 
+                                icelltype=1, 
                                 k=kh_array,
                                 k33=kv_array,
-                                filename=f"{model_name}.npf")
+                                filename=f"{model_name}.npf")  
 
     # Output control
     oc = flopy.mf6.ModflowGwfoc(
@@ -395,12 +404,12 @@ if STEADY:
             modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp=f"{gis_folder}/grid_topview.shp", crs="EPSG:4326")
             riv_cells = modbound6.active_cells_from_line(f"{gis_folder}/grid_topview.shp", f"{gis_folder}/river.shp")
         else:
-            riv_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-2)
+            riv_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-1)
         riv_spd = modbound6.create_riv_spd(
             riv_cells,
-            ztop_array,
+            ztop,
             thickness_array,
-            drn_cond, # Input corresponds to hydraulic conductivity of the river bed, conductance is computed internally
+            drn_cond,
             river_length=drow,
             river_width=1,
             riverbed_thickness=1,
@@ -415,13 +424,13 @@ if STEADY:
                                     filename = f"{model_name}.riv")
     else: 
         # Drain package
-        drn_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-2)
-        # drn_cells = [t for t in drn_cells if t not in riv_cells] 
+        drn_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-1)
+        # drn_cells = [t for t in drn_cells if t not in riv_cells]
         drn_spd = modbound6.create_drn_spd(
             drn_cells,
-            ztop_array,
+            ztop,
             thickness_array,
-            drn_cond, # Input corresponds to hydraulic conductivity of the drain bed, conductance is computed internally
+            drn_cond,
             drain_length=drow,
             drain_width=1,
             drainbed_thickness=1,
@@ -438,7 +447,6 @@ if STEADY:
     rch = flopy.mf6.ModflowGwfrcha(gwf, 
                                 pname = "rch",
                                 save_flows = True,
-                                fixed_cell= False,
                                 irch=irch,
                                 recharge = R_array,
                                 filename = f"{model_name}.rcha")
@@ -446,18 +454,17 @@ if STEADY:
     # Well package
     wel_spd = {}
     wel_spd[0] = []
-    for well_id, group in well_df.groupby("well_id"):
-        # Extract unique lay, row, col for this well
-        lay = group["lay"].iloc[0]
-        row = group["row"].iloc[0]
-        col = group["col"].iloc[0]
-        
-        # Find the STEADY STATE pumping rate from parameters
-        #q0 = par_df[par_df.index=="q_0"].iloc[0,0]
-        q0 = q0 # get the pumping rate if all wells have the same rate
 
-        # Append tuple to list
-        wel_spd[0].append((lay, row, col, q0, well_id))
+    for well_id, group in well_st_df.groupby("well_id"):
+        # Extract unique lay, row, col, q for this well
+        lay = int(group["lay"].iloc[0])
+        row = int(group["row"].iloc[0])
+        col = int(group["col"].iloc[0])
+        q = float(group["q"].iloc[0]) 
+
+        # Append tuple to stress period data
+        wel_spd[0].append((lay, row, col, q, well_id))
+
     wel = flopy.mf6.ModflowGwfwel(gwf, 
                                 pname = "wel",
                                 save_flows = True,
@@ -466,19 +473,12 @@ if STEADY:
                                 filename = f"{model_name}.wel")
 
     # General Head Boundary package
-    # GHB in the lateral outflow
-    ghb_1 = ztop_array[0,0,ncol-1] # Head in the GHB
+    ghb_1 = ztop[0,0,ncol-1] # Head in the GHB
     ghb_spd1 = {}
     ghb_spd1[0] = [
         ((ilay, irow, ncol-1), ghb_1, kh[ilay] * thickness_array[ilay, irow, ncol-1] * drow, f"Layer{ilay}")
         for ilay in range(nlay)
         for irow in range(nrow)] #Conductance set to transmissivity of the cell
-
-    # GHB in the top of first layer
-    # ghb_cells2 = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1,col_start=ncol-25, col_end=ncol-2)
-    # ghb_spd2 = {}
-    # ghb_spd2[0] = [((k, i, j), ztop_array[k,i,j], kh[k]*dcol*drow, "top_ghb") for (k, i, j) in ghb_cells2]
-    # ghb_spd1[0].extend(ghb_spd2[0])
 
     ghb = flopy.mf6.ModflowGwfghb(gwf,
                                     pname="ghb",
@@ -536,6 +536,8 @@ spdis = bud.get_data(text='DATA-SPDIS')[0]
 qx, qy, qz = flopy.utils.postprocessing.get_specific_discharge(spdis, gwf)
 budget_file = f"{output_folder}/{model_name}_budget.csv"
 
+ve= length/(6*(ztop.max()-zbot.min())) # Vertical exaggeration for plots
+
 if post_steady:
 
     print("Postprocessing steady state simulation...")
@@ -578,14 +580,14 @@ if post_steady:
                                     row=nrow//2, 
                                     output_path=f"{figure_folder}/cross_section_heads.png",
                                     boundary_keywords = ["WEL"],
-                                    flow_dir = False, surface = False, ve=100,
+                                    flow_dir = False, surface = False, ve=ve,
                                     show=False, save=True, figsize=(19, 4), layers = False, 
                                     title="Cross section - Steady state simulation", interfaces=interfaces)
     modplot6.plot_cross_section_row(gwf, 
                                     head_path=head_file_path, 
                                     row = nrow//2, 
                                     output_path=f"{figure_folder}/cross_section_heads_qdir.png",
-                                    boundary_keywords = ["WEL"], ve=100,
+                                    boundary_keywords = ["WEL"], ve=ve,
                                     flow_dir = True, cbb_path=budget_file_path, 
                                     surface = True, 
                                     show=False, save=True, figsize=(19, 4), layers = False, 
@@ -603,7 +605,7 @@ if post_steady:
                                         save = True, 
                                         figsize=(19, 5),
                                         fontsize=14,
-                                        ve=100,
+                                        ve=ve,
                                         log=True,
                                         array=kh_array,
                                         label="Hydraulic Conductivity (m/d)", 
@@ -617,26 +619,13 @@ if post_steady:
                                         save = True, 
                                         figsize=(19, 5),
                                         fontsize=14,
-                                        ve=100,
+                                        ve=ve,
                                         log=True,
                                         array=diffusivity,
                                         label="Hydraulic diffusivity (m/d)", 
                                         title="Model layers", 
                                         interfaces=interfaces)
-    modplot6.plot_cross_section_array(gwf, 
-                                      row=nrow//2,
-                                      output_path=f"{figure_folder}/cross_section_outcrops.png", 
-                                      boundary_keywords=None, 
-                                      show = False, 
-                                      save = True, 
-                                      figsize=(19, 5),
-                                      fontsize=14,
-                                      ve=100,
-                                      log=False,
-                                      array=unconfined_areas,
-                                      label="Unconfined areas (1=Unconfined, 0=Confined)", 
-                                      title="Unconfined areas",
-                                      interfaces=interfaces)
+
     modplot6.plot_cross_section_array(gwf,
                                       row= nrow//2,
                                       output_path=f"{figure_folder}/cross_section_layers.png",
@@ -646,7 +635,7 @@ if post_steady:
                                       ax=None,
                                       figsize=(19, 6),
                                       fontsize=14,
-                                      ve=100,
+                                      ve=ve,
                                       array=None,
                                       title="Boundary conditions",
                                       colorbar=False,
@@ -668,7 +657,7 @@ if iterate:
                                             budget_file, head_file_path, nrow//2,
                                             f"{figure_folder}",
                                             f"{output_folder}/{model_name}_modpump6_ss.csv",
-                                            boundary_keywords = ["WEL"], ve=100,
+                                            boundary_keywords = ["WEL"], ve=ve,
                                             animate = True, animation_name = "cross_section_animation_ss.gif",
                                             duration = 250, #In seconds, duration of each frame
                                             save_budget = True, save_wells = True, save_csv = True, 
@@ -721,31 +710,32 @@ if TRANSIENT:
     if STEADY:
         ic.strt = steady_state_heads
     else:
-        ic.strt = np.repeat(ztop[np.newaxis, :, :], nlay, axis=0)
+        ic.strt = np.repeat(topo[np.newaxis, :, :], nlay, axis=0)
     ic.filename = f"{model_name_tr}.ic"
 
-    # Create storage package for transient simulation
-    sto = flopy.mf6.ModflowGwfsto(
-        gwf,
-        pname="sto",
-        iconvert = 1, #Unconfined/confined mixed storage is used
-        sy=sy, #Specific yield
-        ss=ss, #If not specified, flopy uses default value of 1e-5 m-1
-        ss_confined_only=True,
-        steady_state={0: True}, # First stress period is steady state
-        transient={1: True}, 
-        filename=f"{model_name_tr}.sto")
-
-    # # Create storage package for transient simulation
+    # # Storage formulation 01
     # sto = flopy.mf6.ModflowGwfsto(
     #     gwf,
     #     pname="sto",
-    #     iconvert = 0, #Confined storage is used
-    #     storagecoefficient = True,
-    #     ss=storage_coeff, #Using an array that has sy for unconfined areas, and ss*thickness for confined areas
+    #     iconvert = 1, #Unconfined/confined mixed storage is used
+    #     sy=sy, #Specific yield
+    #     ss=ss, #If not specified, flopy uses default value of 1e-5 m-1
+    #     ss_confined_only=True,
     #     steady_state={0: True}, # First stress period is steady state
     #     transient={1: True}, 
     #     filename=f"{model_name_tr}.sto")
+
+    # Storage formulation 02
+    sto = flopy.mf6.ModflowGwfsto(
+        gwf,
+        pname="sto",
+        iconvert = sto_cell_type, #Confined only in outcrop cells (just uses ss), convertible elswhere
+        storagecoefficient = True, # Uses ss as storage coefficient instead of specific storage
+        sy=sy, #It is used just for convertible cells
+        ss=storage_coeff, #Using an array that has sy for outcrop cells, and ss*thickness elsewhere
+        steady_state={0: True}, # First stress period is steady state
+        transient={1: True}, 
+        filename=f"{model_name_tr}.sto")
 
     # Update output control
     oc = gwf.oc
@@ -760,7 +750,6 @@ if TRANSIENT:
     rch = flopy.mf6.ModflowGwfrcha(gwf, 
                                 pname = "rch",
                                 save_flows = True,
-                                fixed_cell= True,
                                 irch=irch,
                                 recharge = "TIMEARRAYSERIES recharge", 
                                 filename = f"{model_name_tr}.rcha")
@@ -892,6 +881,9 @@ budget_file_t = f"{output_folder}/{model_name_tr}_budget.csv"
 zonebud_file_t = f"{output_folder}/zonebud.csv"
 head_file_t = f"{output_folder}/head_obs_t.csv"
 
+modtransient6.process_csv_budget(budget_file_t)
+modtransient6.process_csv_zonebudget(zonebud_file_t)  
+
 if post_transient:
   
     print("Postprocessing transient simulation...")
@@ -937,14 +929,14 @@ if post_transient:
 
     modplot6.plot_cross_section_row(gwf, transient_head_file_path, nrow//2, 
                                     f"{figure_folder}/cross_section_heads_t.png",
-                                    boundary_keywords = ["WEL"], ve=100,
+                                    boundary_keywords = ["WEL"], ve=ve,
                                     flow_dir = False, surface = False, layers=False,
                                     show=False, save=True, figsize = (19, 4),
                                     title=f"Cross section at time {times_list[time_step_plot]} days", 
                                     transient=True, time_step=time_step_plot, interfaces=interfaces)
     modplot6.plot_cross_section_row(gwf, transient_head_file_path, nrow//2, 
                                     f"{figure_folder}/cross_section_heads_t_qdir.png",
-                                    boundary_keywords = ["WEL"], ve=100,
+                                    boundary_keywords = ["WEL"], ve=ve,
                                     flow_dir = True, cbb_path=budget_file_path, 
                                     surface = True, layers=False,
                                     show=False, save=True, figsize = (19, 4),
@@ -959,7 +951,6 @@ if post_transient:
                                         time_units="years")
 
     #--------------------------------------- FLOW BUDGET ---------------------------------------------#
-    modtransient6.process_csv_budget(budget_file_t)  
 
     modtransient6.plot_bud_sum_transient(budget_file_t, times_list[time_step_plot], 
                                         f"{figure_folder}/bud_sum_t.png", 
@@ -992,7 +983,6 @@ if post_transient:
     
     #--------------------------------------- ZONE BUDGET ---------------------------------------------#
     
-    modtransient6.process_csv_zonebudget(zonebud_file_t)
     modtransient6.plot_zone_budget(zonebud_file_t,
                                     output_folder, 
                                     figure_folder, 
@@ -1013,15 +1003,6 @@ if post_transient:
 
 if response_times:
     print("Estimating response times...")
-    stability_threshold = 0.0005 #0.0005
-    threshold_absolute = 0.01 # One centimeter threshold for absolute response time
-    threshold_percent = 1
-    threshold_absolute_sto = 0.001 # 1 liter per second threshold for storage change rate
-
-    start = 3600000 #start of the step change in model units
-    start_step = 1 # Corresponding time step index where the stress is applied
-    step_size = 30  # Step size of the first time step after the stress is applied, in days
-    histogram_bins = None
 
     # ----------------------------- Response time: Absolute residual diffusion threshold
     tr_abs_mean, tr_abs_median, tr_abs_95p, tr_abs_max = modtransient6.response_time_array_absolute(
@@ -1038,7 +1019,7 @@ if response_times:
                                         show_plot=False,
                                         boundary_keywords=["WEL"],
                                         fill="nan",
-                                        ve=100,
+                                        ve=ve,
                                         array_output_folder=output_folder,
                                         array_name="response_time_absolute.npy",
                                         fig_output_folder=figure_folder,
@@ -1048,41 +1029,41 @@ if response_times:
                                         histogram_name="Response_time_absolute_histogram.png",
                                         interfaces=interfaces) 
     
-    modtransient6.response_time_array_absolute(gwf,
-                                            steady_state_heads,
-                                            transient_heads,
-                                            times_list,
-                                            threshold=threshold_absolute,
-                                            threshold_type="absolute",
-                                            stability_threshold=stability_threshold,
-                                            start_step=start_step,
-                                            save_array=False,
-                                            save_plot=True,
-                                            show_plot=False,
-                                            boundary_keywords=["WEL"],
-                                            fill="start",
-                                            ve=100,
-                                            fig_output_folder=figure_folder,
-                                            fig_name="Response_time_absolute_01.png",
-                                            interfaces=interfaces)                                              
+    # modtransient6.response_time_array_absolute(gwf,
+    #                                         steady_state_heads,
+    #                                         transient_heads,
+    #                                         times_list,
+    #                                         threshold=threshold_absolute,
+    #                                         threshold_type="absolute",
+    #                                         stability_threshold=stability_threshold,
+    #                                         start_step=start_step,
+    #                                         save_array=False,
+    #                                         save_plot=True,
+    #                                         show_plot=False,
+    #                                         boundary_keywords=["WEL"],
+    #                                         fill="start",
+    #                                         ve=ve,
+    #                                         fig_output_folder=figure_folder,
+    #                                         fig_name="Response_time_absolute_01.png",
+    #                                         interfaces=interfaces)                                              
     
-    modtransient6.response_time_array_absolute(gwf,
-                                            steady_state_heads,
-                                            transient_heads,
-                                            times_list,
-                                            threshold=threshold_absolute,
-                                            threshold_type="absolute",
-                                            stability_threshold=stability_threshold,
-                                            start_step=start_step,
-                                            save_array=False,
-                                            save_plot=True,
-                                            show_plot=False,                                                
-                                            boundary_keywords=["WEL"],
-                                            fill="max",
-                                            ve=100,
-                                            fig_output_folder=figure_folder,
-                                            fig_name="Response_time_absolute_03.png",
-                                            interfaces=interfaces)
+    # modtransient6.response_time_array_absolute(gwf,
+    #                                         steady_state_heads,
+    #                                         transient_heads,
+    #                                         times_list,
+    #                                         threshold=threshold_absolute,
+    #                                         threshold_type="absolute",
+    #                                         stability_threshold=stability_threshold,
+    #                                         start_step=start_step,
+    #                                         save_array=False,
+    #                                         save_plot=True,
+    #                                         show_plot=False,                                                
+    #                                         boundary_keywords=["WEL"],
+    #                                         fill="max",
+    #                                         ve=ve,
+    #                                         fig_output_folder=figure_folder,
+    #                                         fig_name="Response_time_absolute_03.png",
+    #                                         interfaces=interfaces)
     
     modtransient6.absolute_head_diffusion_zones(transient_heads, 
                                                 steady_state_heads, 
@@ -1103,7 +1084,7 @@ if response_times:
                                                 3: "Confined Aquifer",
                                                 4: "Aquitard",
                                                 5: "Confined Aquifer"},
-                                                center="mean",
+                                                center="median",
                                                 bounds="95p")
     
     modtransient6.absolute_head_diffusion(transient_heads, 
@@ -1119,7 +1100,7 @@ if response_times:
                                           array_name = "diff_array_absolute.npy",
                                           fig_output_folder=figure_folder,
                                           fig_name = "diff_absolute_total.png",
-                                          center="mean", 
+                                          center="median", 
                                           bounds = "95p")
 
     # ----------------------------- Response time: Relative global threshold
@@ -1136,7 +1117,7 @@ if response_times:
                                                boundary_keywords=["WEL"],
                                                max_initial_diff=True,
                                                fill="nan",
-                                               ve=100,
+                                               ve=ve,
                                                array_output_folder=output_folder,
                                                array_name="response_time_relative_global.npy",
                                                fig_output_folder=figure_folder,
@@ -1146,41 +1127,41 @@ if response_times:
                                                histogram_name="Response_time_rel_global_histogram.png",
                                                interfaces=interfaces)
     
-    modtransient6.response_time_array_relative(gwf,
-                                               steady_state_heads,
-                                               transient_heads,
-                                               times_list,
-                                               threshold_percent=threshold_percent,
-                                               stability_threshold=stability_threshold,
-                                               start_step=start_step,
-                                               save_array=False,
-                                               save_plot=True,
-                                               show_plot=False,
-                                               boundary_keywords=["WEL"],
-                                               max_initial_diff=True,
-                                               fill="start",
-                                               ve=100,
-                                               fig_output_folder=figure_folder,
-                                               fig_name="Response_time_rel_global_01.png",
-                                               interfaces=interfaces)
+    # modtransient6.response_time_array_relative(gwf,
+    #                                            steady_state_heads,
+    #                                            transient_heads,
+    #                                            times_list,
+    #                                            threshold_percent=threshold_percent,
+    #                                            stability_threshold=stability_threshold,
+    #                                            start_step=start_step,
+    #                                            save_array=False,
+    #                                            save_plot=True,
+    #                                            show_plot=False,
+    #                                            boundary_keywords=["WEL"],
+    #                                            max_initial_diff=True,
+    #                                            fill="start",
+    #                                            ve=ve,
+    #                                            fig_output_folder=figure_folder,
+    #                                            fig_name="Response_time_rel_global_01.png",
+    #                                            interfaces=interfaces)
     
-    modtransient6.response_time_array_relative(gwf,
-                                            steady_state_heads,
-                                            transient_heads,
-                                            times_list,
-                                            threshold_percent=threshold_percent,
-                                            stability_threshold=stability_threshold,
-                                            start_step=start_step,
-                                            save_array=False,
-                                            save_plot=True,
-                                            show_plot=False,
-                                            boundary_keywords=["WEL"],
-                                            max_initial_diff=True,
-                                            fill="max",
-                                            ve=100,
-                                            fig_output_folder=figure_folder,
-                                            fig_name="Response_time_rel_global_03.png",
-                                            interfaces=interfaces)
+    # modtransient6.response_time_array_relative(gwf,
+    #                                         steady_state_heads,
+    #                                         transient_heads,
+    #                                         times_list,
+    #                                         threshold_percent=threshold_percent,
+    #                                         stability_threshold=stability_threshold,
+    #                                         start_step=start_step,
+    #                                         save_array=False,
+    #                                         save_plot=True,
+    #                                         show_plot=False,
+    #                                         boundary_keywords=["WEL"],
+    #                                         max_initial_diff=True,
+    #                                         fill="max",
+    #                                         ve=ve,
+    #                                         fig_output_folder=figure_folder,
+    #                                         fig_name="Response_time_rel_global_03.png",
+    #                                         interfaces=interfaces)
 
     modtransient6.relative_head_diffusion_zones(transient_heads, 
                                                 steady_state_heads, 
@@ -1200,8 +1181,8 @@ if response_times:
                                                 3: "Confined Aquifer",
                                                 4: "Aquitard",
                                                 5: "Confined Aquifer"},
-                                                center="mean", 
-                                                bounds="full", 
+                                                center="median", 
+                                                bounds="95p", 
                                                 max_initial_diff=True)
 
     modtransient6.relative_head_diffusion(transient_heads, 
@@ -1217,8 +1198,8 @@ if response_times:
                                           array_name="diff_array_rel_global.npy",
                                           fig_output_folder=figure_folder, 
                                           fig_name="diff_rel_global_total.png",
-                                          center="mean",
-                                          bounds="full",
+                                          center="median",
+                                          bounds="95p",
                                           max_initial_diff=True)
 
     # ----------------------------- Response time: Relative local threshold
@@ -1235,8 +1216,7 @@ if response_times:
                                                boundary_keywords=["WEL"],
                                                max_initial_diff=False,
                                                fill="nan",
-                                               ve=100,
-                                               bounds="95p",
+                                               ve=ve,
                                                array_output_folder=output_folder,
                                                array_name="response_time_relative_local.npy",
                                                fig_output_folder=figure_folder,
@@ -1246,43 +1226,43 @@ if response_times:
                                                histogram_name="Response_time_rel_local_histogram.png",
                                                interfaces=interfaces)
 
-    modtransient6.response_time_array_relative(gwf,
-                                               steady_state_heads,
-                                               transient_heads,
-                                               times_list,
-                                               threshold_percent=threshold_percent,
-                                               stability_threshold=stability_threshold,
-                                               start_step=start_step,
-                                               save_array=False,
-                                               save_plot=True,
-                                               show_plot=False,
-                                               boundary_keywords=["WEL"],
-                                               max_initial_diff=False,
-                                               fill="start",
-                                               ve=100,
-                                               bounds="95p",
-                                               fig_output_folder=figure_folder,
-                                               fig_name="Response_time_rel_local_01.png",
-                                               interfaces=interfaces)
+    # modtransient6.response_time_array_relative(gwf,
+    #                                            steady_state_heads,
+    #                                            transient_heads,
+    #                                            times_list,
+    #                                            threshold_percent=threshold_percent,
+    #                                            stability_threshold=stability_threshold,
+    #                                            start_step=start_step,
+    #                                            save_array=False,
+    #                                            save_plot=True,
+    #                                            show_plot=False,
+    #                                            boundary_keywords=["WEL"],
+    #                                            max_initial_diff=False,
+    #                                            fill="start",
+    #                                            ve=ve,
+    #                                            bounds="95p",
+    #                                            fig_output_folder=figure_folder,
+    #                                            fig_name="Response_time_rel_local_01.png",
+    #                                            interfaces=interfaces)
     
-    modtransient6.response_time_array_relative(gwf,
-                                            steady_state_heads,
-                                            transient_heads,
-                                            times_list,
-                                            threshold_percent=threshold_percent,
-                                            stability_threshold=stability_threshold,
-                                            start_step=start_step,
-                                            save_array=False,
-                                            save_plot=True,
-                                            show_plot=False,
-                                            boundary_keywords=["WEL"],
-                                            max_initial_diff=False,
-                                            fill="max",
-                                            ve=100,
-                                            bounds="95p",
-                                            fig_output_folder=figure_folder,
-                                            fig_name="Response_time_rel_local_03.png", 
-                                            interfaces=interfaces)
+    # modtransient6.response_time_array_relative(gwf,
+    #                                         steady_state_heads,
+    #                                         transient_heads,
+    #                                         times_list,
+    #                                         threshold_percent=threshold_percent,
+    #                                         stability_threshold=stability_threshold,
+    #                                         start_step=start_step,
+    #                                         save_array=False,
+    #                                         save_plot=True,
+    #                                         show_plot=False,
+    #                                         boundary_keywords=["WEL"],
+    #                                         max_initial_diff=False,
+    #                                         fill="max",
+    #                                         ve=ve,
+    #                                         bounds="95p",
+    #                                         fig_output_folder=figure_folder,
+    #                                         fig_name="Response_time_rel_local_03.png", 
+    #                                         interfaces=interfaces)
 
     modtransient6.relative_head_diffusion_zones(transient_heads, 
                                                 steady_state_heads, 
@@ -1302,8 +1282,8 @@ if response_times:
                                                 3: "Confined Aquifer",
                                                 4: "Aquitard",
                                                 5: "Confined Aquifer"},
-                                                center="mean", 
-                                                bounds="stdev", 
+                                                center="median", 
+                                                bounds="95p", 
                                                 max_initial_diff=False)
 
     modtransient6.relative_head_diffusion(transient_heads, 
@@ -1319,39 +1299,11 @@ if response_times:
                                           array_name="diff_array_rel_local.npy",
                                           fig_output_folder=figure_folder, 
                                           fig_name="diff_rel_local_total.png",
-                                          center="mean",
-                                          bounds="stdev",
+                                          center="median",
+                                          bounds="95p",
                                           max_initial_diff=False)
     
-    # ----------------------------- Response time: Storage change rate 
-    modtransient6.tr_storage_change_rate_zones(zonebud_file_t, output_folder, figure_folder, 
-                show=False, save_csv=True, save_fig=True, 
-                figsize=(14, 12), fontsize=14,
-                xlim=None, ylim=None, threshold=threshold_percent, threshold_type="relative", 
-                start_time=start, step_size=step_size, fig_name="tr_storage_change_rate_zones_relative.png",
-                summary_csv_name="tr_zones_storage_relative.csv")
-
-    tr_sto_relative = modtransient6.tr_storage_change_rate(budget_file_t, output_folder, figure_folder, 
-                show=False, save_csv=True, save_fig=True, 
-                figsize=(14, 12), fontsize=14,
-                xlim=None, ylim=None, threshold=threshold_percent, threshold_type="relative", 
-                start_time=start, step_size=step_size, fig_name="tr_storage_change_rate_relative.png")
-
-    modtransient6.tr_storage_change_rate_zones(zonebud_file_t, output_folder, figure_folder, 
-                show=False, save_csv=False, save_fig=True, 
-                figsize=(14, 12), fontsize=14,
-                xlim=None, ylim=None, threshold=threshold_absolute_sto, threshold_type="absolute", 
-                start_time=start, step_size=step_size, fig_name="tr_storage_change_rate_zones_absolute.png",
-                summary_csv_name="tr_zones_storage_absolute.csv")
-
-    tr_sto_absolute =modtransient6.tr_storage_change_rate(budget_file_t, output_folder, figure_folder, 
-                show=False, save_csv=False, save_fig=True, 
-                figsize=(14, 12), fontsize=14,
-                xlim=None, ylim=None, threshold=threshold_absolute_sto, threshold_type="absolute", 
-                start_time=start, step_size=step_size, fig_name="tr_storage_change_rate_absolute.png")
-    
     #------------------------------- Maximum drawdown or head difference
-    start = 3600000 #start of the step change in model units
     res_diff_array = modtransient6.plot_residual_diffusion(  gwf=gwf,
                                             time=start,
                                             perioddata=perioddata,
@@ -1363,7 +1315,7 @@ if response_times:
                                             vmin=0,
                                             vmax=None,
                                             save=True,
-                                            ve=100,
+                                            ve=ve,
                                             output_folder=f"{figure_folder}/Residual_diffusion",
                                             plot_name=f"Residual_diffusion_{start}.png",
                                             boundary_keywords=["WEL"], 
@@ -1371,10 +1323,8 @@ if response_times:
     vmax = np.nanmax(res_diff_array)
 
     #--------------------------------------- SUMMARY CSV ---------------------------------------------#
-    print(f"Pumping rate [m3/day]: {q0}",
+    print(  f"Total pumping rate [m3/day]: {q0}",
             f"Maximum drawdown [m]: {vmax}",
-            f"tr_sto_relative= {tr_sto_relative}",
-            f"tr_sto_absolute= {tr_sto_absolute}",
             f"tr_abs_mean= {tr_abs_mean}",
             f"tr_abs_median= {tr_abs_median}",
             f"tr_abs_95p= {tr_abs_95p}",
@@ -1391,10 +1341,8 @@ if response_times:
             )
     
     summary_data = {
-        "Pumping rate [m3/day]": [q0],
+        "Total pumping rate [m3/day]": [q0],
         "Maximum drawdown [m]": [vmax],
-        "tr_sto_relative": [tr_sto_relative],
-        "tr_sto_absolute": [tr_sto_absolute],
         "tr_abs_mean": [tr_abs_mean],
         "tr_abs_median": [tr_abs_median],
         "tr_abs_95p": [tr_abs_95p],
@@ -1416,9 +1364,6 @@ if response_times:
 if animate:
     
     # print("Creating residual diffusion animation...")
-    # start = 3600000 #start of the step change in model units
-    # step = 360  # Size of the steps for the animation in model units
-    # n = 20
     # end = start + (step*n)
     # vmax = None
     # for t in range(start, end, step):
@@ -1433,7 +1378,7 @@ if animate:
     #                                             vmin=0,
     #                                             vmax=vmax,
     #                                             save=True,
-    #                                             ve=100,
+    #                                             ve=ve,
     #                                             output_folder=f"{figure_folder}/Residual_diffusion", 
     #                                             plot_name = f"Residual_diffusion_{t}.png",
     #                                             boundary_keywords=["WEL"],
@@ -1445,9 +1390,6 @@ if animate:
     # modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
 
     # print("Creating transient head animation...")
-    # start = 3600000 #start of the step change in model units
-    # step = 360000 * 2 # Size of the steps for the animation in model units
-    # n = 100
     # end = start + (step*n)
     # vmax = None
     # for t in range(start, end, step):
@@ -1462,7 +1404,7 @@ if animate:
     #                                             vmin=0,
     #                                             vmax=vmax,
     #                                             save=True,
-    #                                             ve=100,
+    #                                             ve=ve,
     #                                             output_folder=f"{figure_folder}/Transient_heads", 
     #                                             plot_name = f"Transient_heads_{t}.png",
     #                                             boundary_keywords=["WEL"],
@@ -1474,9 +1416,6 @@ if animate:
     # modplot6.animate(f"{figure_folder}/Transient_heads", f"{figure_folder}/Transient_heads.gif", duration=250)
 
     # print("Creating transient head animation with head time series...")
-    # start = 3600000 #start of the step change in model units
-    # step = 36000 # Size of the steps for the animation in model units
-    # n = 50
     # end = start + (step*n)
     # vmax = None
     # for t in range(start, end, step):
@@ -1495,7 +1434,7 @@ if animate:
     #                                         vmin=-150,
     #                                         vmax=vmax,
     #                                         save=True,
-    #                                         ve=100,
+    #                                         ve=ve,
     #                                         output_folder=f"{figure_folder}/Transient_heads_ts",
     #                                         plot_name=f"Transient_heads_{t}.png",
     #                                         boundary_keywords=["WEL"],
@@ -1507,9 +1446,6 @@ if animate:
     # modplot6.animate(f"{figure_folder}/Transient_heads_ts", f"{figure_folder}/Transient_heads_ts.gif", duration=250)
 
     print("Creating transient Residual diffusion animation with residual diffusion time series...")
-    start = 3600000 #start of the step change in model units
-    step = 14400000 # Size of the steps for the animation in model units
-    n = 50
     end = start + (step*n)
     vmax = None
     for t in range(start, end, step):
@@ -1528,7 +1464,7 @@ if animate:
                                             vmin=0,
                                             vmax=vmax,
                                             save=True,
-                                            ve=100,
+                                            ve=ve,
                                             output_folder=f"{figure_folder}/Res_diff_ts",
                                             plot_name=f"Res_diff_ts_{t}.png",
                                             boundary_keywords=["WEL"],
@@ -1540,9 +1476,6 @@ if animate:
     modplot6.animate(f"{figure_folder}/Res_diff_ts", f"{figure_folder}/Res_diff_ts.gif", duration=250)
 
     # print("Creating transient head animation with capture time series...")
-    # start = 3600030 #start of the step change in model units
-    # step = 36000 # Size of the steps for the animation in model units
-    # n = 50
     # end = start + (step*n)
     # vmax = None
     # for t in range(start, end, step):
@@ -1560,7 +1493,7 @@ if animate:
     #                                         vmin=-150,
     #                                         vmax=vmax,
     #                                         save=True,
-    #                                         ve=100,
+    #                                         ve=ve,
     #                                         output_folder=f"{figure_folder}/Transient_heads_sto",
     #                                         plot_name=f"Transient_heads_{t}.png",
     #                                         boundary_keywords=["WEL"],

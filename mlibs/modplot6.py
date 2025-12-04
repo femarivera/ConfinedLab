@@ -117,6 +117,8 @@ def plot_map_view(gwf,
         head = hobj.get_data()
         
     masked_head = np.where(idomain == 0, np.nan, head)
+    masked_head = np.where(masked_head == 1E30, np.nan, masked_head)
+    masked_head = np.where(masked_head == -1E30, np.nan, masked_head)
 
     # Initialize the figure and axes
     fig, ax = plt.subplots(1, 1, figsize=figsize, constrained_layout=True)
@@ -299,6 +301,8 @@ def plot_cross_section_row(gwf,
         head = hobj.get_data()
     
     masked_head = np.where(idomain == 0, np.nan, head)
+    masked_head = np.where(masked_head == 1E30, np.nan, masked_head)
+    masked_head = np.where(masked_head == -1E30, np.nan, masked_head)
 
     # Compute minimum and maximum head values for color scaling
     if vmin:
@@ -513,6 +517,8 @@ def plot_cross_section_col(gwf,
         head = hobj.get_data()
     
     masked_head = np.where(idomain == 0, np.nan, head)
+    masked_head = np.where(masked_head == 1E30, np.nan, masked_head)
+    masked_head = np.where(masked_head == -1E30, np.nan, masked_head)
 
     # Compute minimum and maximum head values for color scaling
     if vmin:
@@ -752,7 +758,8 @@ def plot_cross_section_array(gwf,
                              label="Legend", 
                              vmin = None, 
                              vmax = None, 
-                             interfaces=None):
+                             interfaces=None, 
+                             colormap = "cividis_r"):
     """
     Plots a cross-section for a MODFLOW 6 groundwater flow model along a specified row.
 
@@ -772,6 +779,9 @@ def plot_cross_section_array(gwf,
         label (str, optional): Label for the colorbar.
         vmin, vmax (float, optional): Minimum and maximum values for color scaling. If None, computed from the array.
         log (bool, optional): Whether to use logarithmic color scaling.
+        ve (float, optional): Vertical exaggeration factor.
+        interfaces (np.ndarray, optional): 3D array of layer interfaces for plotting.
+        colormap (str, optional): Colormap to use for plotting the array.
 
     Outputs:
         Displays the cross-section plot and/or saves it to a file.
@@ -839,9 +849,9 @@ def plot_cross_section_array(gwf,
         # Plot the array
         if log:
             norm = LogNorm(vmin=vmin, vmax=vmax)
-            pa = section.plot_array(array, vmin=vmin, vmax=vmax, cmap=get_cmap("cividis_r"), norm=norm)
+            pa = section.plot_array(array, vmin=vmin, vmax=vmax, cmap=get_cmap(colormap), norm=norm)
         else:    
-            pa = section.plot_array(array, vmin=vmin, vmax=vmax, cmap=get_cmap("cividis_r"))
+            pa = section.plot_array(array, vmin=vmin, vmax=vmax, cmap=get_cmap(colormap))
         # Add colorbar
         if colorbar:
             cb = plt.colorbar(pa, ax=ax)

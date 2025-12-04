@@ -301,8 +301,7 @@ def create_drn_spd(
 
         assert ztop[k, i, j] >= drn_elev >= cell_bottom, (
             f"Inconsistent elevations for cell (k={k}, i={i}, j={j}): "
-            f"ztop={ztop[k, i, j]}, drn_elev={drn_elev}, cell_bottom={cell_bottom}"
-        )
+            f"ztop={ztop[k, i, j]}, drn_elev={drn_elev}, cell_bottom={cell_bottom}")
 
         drn_cond = (k_array[k] * drain_length * drain_width) / (drainbed_thickness)
 
@@ -376,7 +375,7 @@ def extract_active_cells_n(irch, idomain, n):
 
 def extract_active_cells_range(irch, idomain, row_start, row_end, col_start, col_end):
     """
-    Extract active cell indices (k, i, j) from irch and idomain arrays,
+    Extract top most active cell indices (k, i, j) from irch and idomain arrays,
     within a specified submatrix defined by row and column ranges.
 
     Parameters:
@@ -388,7 +387,7 @@ def extract_active_cells_range(irch, idomain, row_start, row_end, col_start, col
         col_end (int): Ending column index (inclusive).
 
     Returns:
-        list of (k, i, j) indices for active cells within the specified submatrix.
+        list of (k, i, j) indices for top most active cells within the specified submatrix.
     """
     # Input checks
     nrow, ncol = irch.shape

@@ -14,23 +14,26 @@ SETUP_FILE = os.path.join(BASE_DIR, "setup.xlsx")
 SCRIPTS_TO_COPY = [
     "Sustainable_yield.py",
     "Model.py",
-    "Parameter_analysis.py"
+    # "Parameter_analysis.py"
 ]
 
+SCRIPT_TO_RUN = "Sustainable_yield.py"  # The script to run in each case
+
+PREFIX = "kv_" # Prefix for parameter value columns in parameter_analysis sheet
+
 # -------------------------------------------------------------
-# LOAD PARAMETER SHEETS ONCE
+# LOAD PARAMETER SHEETS
 # -------------------------------------------------------------
 df_par_sets = pd.read_excel(SETUP_FILE, sheet_name="parameter_analysis")
 df_parameters = pd.read_excel(SETUP_FILE, sheet_name="parameters")
 
 par_names = df_par_sets["par_name"].tolist()
-parv_columns = [col for col in df_par_sets.columns if col.startswith("parv_")]
+parv_columns = [col for col in df_par_sets.columns if col.startswith(PREFIX)]
 
 print(f"Found parameter sets: {parv_columns}")
 
-
 # -------------------------------------------------------------
-# FUNCTION 1 — PREPARE CASE (RUNS SEQUENTIALLY)
+# PREPARE CASE (RUNS SEQUENTIALLY)
 # -------------------------------------------------------------
 def prepare_case(parv_col):
 
@@ -74,16 +77,16 @@ def prepare_case(parv_col):
 
 
 # -------------------------------------------------------------
-# FUNCTION 2 — RUN CASE (PROCESSPOOL EXECUTOR)
+# RUN CASE (PROCESSPOOL EXECUTOR)
 # -------------------------------------------------------------
 def run_case(parv_col):
 
     case_dir = os.path.join(BASE_DIR, parv_col)
-    print(f"Running sustainable_yield.py for {parv_col}")
+    print(f"Running simulation for {parv_col}")
 
     # IMPORTANT: Use subprocess.run, NOT subprocess.Popen
     subprocess.run(
-        ["python", "Sustainable_yield.py"],
+        ["python", SCRIPT_TO_RUN],
         cwd=case_dir)
 
     return f"{parv_col} completed."

@@ -207,3 +207,10 @@ def stack_fields_to_3D(field_list, nlay, nrow, ncol):
             raise ValueError(f"Field at index {i} has shape {arr.shape}, expected ({nrow}, {ncol}).")
     arr3d = np.stack([np.asarray(f) for f in field_list], axis=0)
     return arr3d
+
+def par_df_to_1Darray(df, prefix):
+    # Helper function to extract parameter arrays from setup file dataframe
+    
+    subset = df[df.index.str.startswith(prefix)]
+    subset = subset.sort_index()  # Ensure correct order
+    return subset["value"].to_numpy()

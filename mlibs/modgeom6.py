@@ -24,9 +24,6 @@
 #  DEPENDENCIES:
 #  -------------
 #  - numpy
-# ==========================================================================================
-#  MAIN FUNCTIONS - RECOMMENDED WORKFLOW FOR SYNTHETIC MULTILAYER GEOMETRY GENERATION
-# ==========================================================================================
 #  Default parameters on the main functions are set to generate geometries for systems with defined outcropping 
 #  and confined areas. This usually generates a simple yet realistic geometry of a multilayer system representing
 #  the typical stratigraphic configuration of a sedimentary basin without faulting or folding. 
@@ -60,12 +57,11 @@ def compute_idomain(nlay, nrow, ncol, outcrop_cells, direction = "right"):
         raise ValueError("All outcrop_cells values must be in the range [0, ncol].")
 
     if direction == "left":
-        if not np.all(np.diff(outcrop_cells) > 0):
-            raise ValueError("For 'left', outcrop_cells must be strictly ascending.")
+        if not np.all(np.diff(outcrop_cells) >= 0):
+            raise ValueError("For 'left', outcrop_cells must be ascending or constant.")
     else:  # direction == "right"
-        if not np.all(np.diff(outcrop_cells) < 0):
-            raise ValueError("For 'right', outcrop_cells must be strictly descending.")
-
+        if not np.all(np.diff(outcrop_cells) <= 0):
+            raise ValueError("For 'right', outcrop_cells must be descending or constant.")
     # Initialize idomain array with ones (active cells)
     idomain = np.ones((nlay, nrow, ncol), dtype=int)
     # Apply the condition for each layer using the corresponding outcrop length
@@ -503,13 +499,15 @@ def compute_ztop_array(ztop, zbot):
     
     return ztop_array
 
-def compute_3Darray(values_1d, idomain, dtype=float):
+def compute_3Darray(values_1d, nlay, nrow, ncol, dtype=float):
     """
-    Expands a 1D array of layer values to a 3D array, assigning each value to active cells in the corresponding layer.
+    Expands a 1D array of layer values to a layered 3D array, assigning each value to active cells in the corresponding layer.
 
     Args:
         values_1d (np.ndarray): 1D array of length nlay, with values for each layer.
-        idomain (np.ndarray): 3D array of shape (nlay, nrow, ncol), with 1 for active and 0 for inactive cells.
+        nlay (int): Number of layers.
+        nrow (int): Number of rows.
+        ncol (int): Number of columns.
         dtype (data-type, optional): Desired data type for the output array. Default is float.
 
     Returns:
@@ -522,16 +520,11 @@ def compute_3Darray(values_1d, idomain, dtype=float):
     # Input checks
     if not isinstance(values_1d, np.ndarray):
         raise ValueError("values_1d must be a numpy array.")
-    if not isinstance(idomain, np.ndarray):
-        raise ValueError("idomain must be a numpy array.")
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
     if values_1d.ndim != 1:
         raise ValueError("values_1d must be a 1D array.")
-    if values_1d.shape[0] != idomain.shape[0]:
-        raise ValueError("Length of values_1d must match number of layers in idomain.")
+    if values_1d.shape[0] != nlay:
+        raise ValueError("Length of values_1d must match number of layers (nlay).")
 
-    nlay, nrow, ncol = idomain.shape
     arr3d = np.empty((nlay, nrow, ncol), dtype=dtype)
     for ilay in range(nlay):
         arr3d[ilay, :, :] = values_1d[ilay]
@@ -554,7 +547,9 @@ def subdivide_layers(idomain, ztop, zbot, nsub_layers):
 
     Returns
     -------
-    idomain_new, ztop_new, zbot_new
+    idomain_new, ztop_new, zbot_new, thickness_new : ndarray
+        New arrays after subdivision.
+        size (sum(nsub_layers), nrow, ncol)
     """
     nlay, nrow, ncol = idomain.shape
     nlay_new = sum(nsub_layers)
@@ -573,8 +568,10 @@ def subdivide_layers(idomain, ztop, zbot, nsub_layers):
             ztop_new[idx_new] = ztop[ilay] - (ztop[ilay] - zbot[ilay]) * frac_top
             zbot_new[idx_new] = ztop[ilay] - (ztop[ilay] - zbot[ilay]) * frac_bot
             idx_new += 1
+    
+    thickness_new = ztop_new - zbot_new
 
-    return nlay_new, idomain_new, ztop_new, zbot_new
+    return nlay_new, idomain_new, ztop_new, zbot_new, thickness_new
 
 def subdivide_array(arr, nsub_layers):
     """
@@ -596,62 +593,52 @@ def subdivide_array(arr, nsub_layers):
         [np.repeat(arr[[i]], nsub_layers[i], axis=0) for i in range(len(nsub_layers))],
         axis=0)
 
-def compute_unconfined_areas(irch, idomain):
+def storage_coefficient(sy_cells, idomain, ss, sy, thickness):
     """
-    Compute a 3D boolean mask for unconfined (outcropping) areas.
-
-    Parameters
-    ----------
-    irch : 2D numpy array (nrow, ncol)
-        Index of the outcropping layer for each cell.
-    idomain : 3D numpy array (nlay, nrow, ncol)
-        MODFLOW idomain array (1=active, 0=inactive).
-
-    Returns
-    -------
-    unconfined_areas : 3D numpy array (nlay, nrow, ncol)
-        1 where layer is unconfined (outcropping), 0 otherwise.
+    sy_cells: list of tuples
+        List of (k, i, j) indices where specific yield (sy) should be used instead of specific storage (ss).
+    idomain: 3D ndarray
+        IDOMAIN array (0=inactive, 1=active).
+    ss: 3D array
+        Specific storage values for each cell (nlay, nrow, ncol).
+    sy: 3D array
+        Specific yield values for each cell (nlay, nrow, ncol).
+    thickness: 3D ndarray
+        Thickness of each cell (nlay, nrow, ncol).
     """
     nlay, nrow, ncol = idomain.shape
-    # Broadcast irch to 3D for comparison
-    irch3d = np.broadcast_to(irch, (nlay, nrow, ncol))
-    layers = np.arange(nlay)[:, None, None]
-    return ((irch3d == layers) & (idomain == 1)).astype(int)
+    
+    # Initialize storage coefficient array
+    storage_coeff = np.zeros((nlay, nrow, ncol), dtype=float)
 
-def compute_storage_coefficient(unconfined_areas, Sy, Ss, thickness):
-    """
-    Compute 3D storage coefficient array based on unconfined/confined areas.
+    # Start by assigning ss * thickness everywhere
+    storage_coeff = ss * thickness # element-wise multiply (3D × 3D)
 
-    Parameters
-    ----------
-    unconfined_areas : ndarray (nlay, nrow, ncol)
-        1 where cell is unconfined, 0 where confined.
-    Sy : ndarray (nlay,)
-        Specific yield per layer.
-    Ss : ndarray (nlay,)
-        Specific storage per layer.
-    thickness : ndarray (nlay, nrow, ncol)
-        Cell thickness.
+    # Now overwrite cells in sy_cells with sy for their layer
+    for (k, i, j) in sy_cells:
+        if idomain[k, i, j] == 1:      # ensure cell is active
+            storage_coeff[k, i, j] = sy[k, i, j]
 
-    Returns
-    -------
-    storage_coeff : ndarray (nlay, nrow, ncol)
-        Storage coefficient for each cell.
-    """
-    nlay, nrow, ncol = unconfined_areas.shape
-
-    # Broadcast Sy and Ss to 3D
-    Sy3d = Sy[:, None, None]
-    Ss3d = Ss[:, None, None]
-
-    # Compute with vectorized blending
-    storage_coeff = np.where(
-        unconfined_areas == 1,
-        Sy3d,
-        Ss3d * thickness
-    )
+    # inactive cells are nan
+    storage_coeff[idomain == 0] = np.nan
 
     return storage_coeff
+
+def storage_cell_type(sy_cells, idomain):
+    nlay, nrow, ncol = idomain.shape
+    
+    # Initialize output with convertible storage everywhere
+    sto_cell_type = np.ones((nlay, nrow, ncol), dtype=float)
+
+    # Now overwrite cells in sy_cells with 0 for confined only
+    for (k, i, j) in sy_cells:
+        if idomain[k, i, j] == 1:      # ensure cell is active
+            sto_cell_type[k, i, j] = 0
+
+    # inactive cells are nan
+    sto_cell_type[idomain == 0] = np.nan
+
+    return sto_cell_type
 
 def insert_soil_layer(ztop, zbot, idomain, soil_thickness=5.0):
     """
@@ -699,7 +686,8 @@ def insert_soil_layer(ztop, zbot, idomain, soil_thickness=5.0):
 
     new_nlay = nlay + 1
 
-    return new_ztop, new_zbot, new_idomain, new_nlay
+    new_thickness = new_ztop - new_zbot
+    return new_ztop, new_zbot, new_idomain, new_nlay, new_thickness
 
 def add_top_value(arr, top_value=None):
     """Insert top_value (or first value to a 1D layer wise array) after adding a soil model layer."""
@@ -712,795 +700,6 @@ def add_top_layer(arr3d, value=None):
     if value is None:
         value = arr3d[0, :, :]
     return np.vstack((value[None, :, :], arr3d))
-
-# ==========================================================================================
-# ==========================================================================================
-#  VARIANT FUNCTIONS - ADVANCED & EXPERIMENTAL SYNTHETIC GEOMETRY GENERATION
-# ==========================================================================================
-# The following functions provide additional flexibility. They allow you to
-# experiment with left- or right-dipping systems, different transitions, and custom
-# slope/top/thickness logic. Use these to explore a wider range of conceptual models.
-# ==========================================================================================
-
-#  NAMING CONVENTION:
-#  ------------------
-#  - Functions with 'left' or 'right' refer to the dip direction of the system.
-#  - Functions with 'extend' allow transitions refer to different approaches to generate transitions between units.
-#  - 'slope' functions use sloping tops; others use flat tops.
-#
-#  Combinig contained transitions for top generation with extended transitions for thickness generation, using transition cells that 
-#  are larger than the outcropping area would lead to a more complex geometry.
-
-# ==========================================================================================
-#  IDOMAIN VARIANT FUNCTIONS - ADVANCED & EXPERIMENTAL SYNTHETIC GEOMETRY GENERATION
-# ==========================================================================================
-
-def compute_idomain_left(nlay, nrow, ncol, outcrop_cells):
-    """
-    Create an idomain array for a synthetic multilayer system dipping to the left (confined to the left).
-    
-    Parameters:
-        nlay (int): Number of layers.
-        nrow (int): Number of rows.
-        ncol (int): Number of columns.
-        outcrop_cells (1D array): 1D array of length (nlay), with the column indices (int) representing
-            the threshold from where the layer becomes inactive. Each layer (i) is active for columns
-            less or equal than outcrop_cell[i], and inactive after that.
-            The last layer remains fully active.
-            Outcrop_cells should be sorted in ascending order: Outcrop_cells[i] < outcrop_cells[i+1].
-            Outcropping area in model grid for layer i corresponds to [outcrop_cells[i-1], outcrop_cells[i]] 
-            and [0, outcrop_cells[0]] for the first layer.
-
-    Returns:
-        Idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) with 1 for active and 0 for inactive cells.
-    """
-
-    # Input checks
-    outcrop_cells = np.asarray(outcrop_cells)
-    if len(outcrop_cells) != nlay:
-        raise ValueError("outcrop_cells must have length equal to nlay.")
-    if not np.all(np.diff(outcrop_cells) > 0):
-        raise ValueError("outcrop_cells must be strictly ascending (each value less than the next).")
-    if np.any(outcrop_cells < 0) or np.any(outcrop_cells > ncol):
-        raise ValueError("All outcrop_cells values must be in the range [0, ncol].")
-
-     # Initialize idomain array with ones (active cells)
-    idomain = np.ones((nlay, nrow, ncol), dtype=int)
-    # Apply the condition for each layer using the corresponding outcrop length
-    for layer in range(nlay - 1):
-        L = int(outcrop_cells[layer])
-        idomain[layer, :, L:] = 0  # Set cells beyond the threshold for the current layer to 0
-
-    # Last layer remains fully active (already set to 1)
-    return idomain
-
-def compute_idomain_right(nlay, nrow, ncol, outcrop_cells):
-    """
-    Create an idomain array for a synthetic multilayer system dipping to the right (outcropping to the left).
-    
-    Parameters:
-        nlay (int): Number of layers.
-        nrow (int): Number of rows.
-        ncol (int): Number of columns.
-        outcrop_cells (1D array): 1D array of length (nlay), with the column indices (int) representing
-                the threshold from where the layer becomes active. Each layer is active (1) for columns 
-                greater than or equal to the outcrop cell, and inactive before that.
-                The last layer remains fully active.
-                Outcrop_cells should be sorted in descending order: outcrop_cells[i] > outcrop_cells[i+1].
-                Outcropping areas in model grid for layer i correspond to [outcrop_cells[i], outcrop_cells[i-1]] 
-                and [outcrop_cells[0], ncol-1] for the first layer.
-                
-
-    Returns:
-        Idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) with 1 for active and 0 for inactive cells.
-    """
-
-    # Input checks
-    outcrop_cells = np.asarray(outcrop_cells)
-    if len(outcrop_cells) != nlay:
-        raise ValueError("outcrop_cells must have length equal to nlay.")
-    if not np.all(np.diff(outcrop_cells) < 0):
-        raise ValueError("outcrop_cells must be strictly descending (each value greater than the next).")
-    if np.any(outcrop_cells < 0) or np.any(outcrop_cells > ncol):
-        raise ValueError("All outcrop_cells values must be in the range [0, ncol].")
-
-    # Initialize idomain array with ones (active cells)
-    idomain = np.ones((nlay, nrow, ncol), dtype=int)
-    # Apply the condition for each layer using the corresponding outcrop length
-    for layer in range(nlay - 1):  # Loop through all layers except the last one
-        L = int(outcrop_cells[layer])
-        idomain[layer, :, :L] = 0  # Set cells untill the threshold for the current layer to 0 (inactive)
-    
-    # Last layer remains fully active (already set to 1)
-    return idomain
-
-# ==========================================================================================
-# TOP VARIANT FUNCTIONS - ADVANCED & EXPERIMENTAL SYNTHETIC GEOMETRY GENERATION
-# ==========================================================================================
-def compute_top_simple(idomain, outcrop_z):
-    """
-    Computes a 2D array of top elevations based on the uppermost active layer at each cell and the outcrop elevations
-    defined per layer.
-
-    Parameters:
-        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) indicating active (1) and inactive (0) cells.
-        outcrop_z (1D array-like): Array of length nlay, with outcropping top elevations for each layer.
-
-    Returns:
-        top (numpy.ndarray): 2D array (nrow, ncol) of top elevations.
-    """
-
-    # Input checks
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    nlay, nrow, ncol = idomain.shape    
-    outcrop_z = np.asarray(outcrop_z)
-    if outcrop_z.shape[0] != nlay:
-        raise ValueError("outcrop_z must have length equal to nlay.")
-    
-    # Initialize top array
-    top = np.zeros((nrow, ncol), dtype=float)
-    
-    # Calculate the number of active layers at each (row, col)
-    active_layers = np.sum(idomain, axis=0)  # Shape will be (nrow, ncol)
-    
-    # The topmost active layer index at each cell
-    irch = nlay - active_layers
-    
-    # Assign the correct top elevation for each layer
-    for layer_id in range(nlay):
-        top[irch == layer_id] = outcrop_z[layer_id]
-
-    return top
-
-def compute_slope_left_extend(idomain, outcrop_z_min, outcrop_z_max, transition_cells):
-    """
-    Compute top elevations with smooth transitions between outcropping zones adding linear slopes for each layer,
-    for left-dipping systems. Transitions are extended beyond the active zones defined in `idomain`
-    by the extent specified by the `transition_cells` parameter (number of columns).
-    
-    Note:
-    This version extends the top elevation transition *beyond* the active zones defined in the input idomain
-    by the extent specified by the `transition_cells` parameter. This can be useful for certain visualization
-    or conceptual model setups, but it does not confine transitions strictly within each layer's original idomain.
-
-    Parameters:
-        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) indicating active (1) and inactive (0) cells.
-        outcrop_z_min (1D array-like): Minimum elevation for each layer (length nlay).
-        outcrop_z_max (1D array-like): Maximum elevation for each layer (length nlay).
-        transition_cells (int): Number of columns for the transition zone between layers.
-
-    Returns:
-        top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with extended transitions and slopes.
-    """
-
-    # Input checks
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    nlay, nrow, ncol = idomain.shape
-    outcrop_z_min = np.asarray(outcrop_z_min)
-    outcrop_z_max = np.asarray(outcrop_z_max)
-    if outcrop_z_min.shape[0] != nlay or outcrop_z_max.shape[0] != nlay:
-        raise ValueError("outcrop_z_min and outcrop_z_max must have length equal to nlay.")
-    if not isinstance(transition_cells, int) or transition_cells < 1:
-        raise ValueError("transition_cells must be a positive integer.")
-    
-    # Initialize top array
-    top = np.zeros((nrow, ncol), dtype=float)
-
-    # Compute the topmost active layer index at each cell
-    active_layers = np.sum(idomain, axis=0)  # Shape will be (nrow, ncol)
-    irch = nlay - active_layers  # Values will range from 0 to nlay-1
-
-    # Step 1: Assign a sloping top elevation for each active layer
-    for layer_id in range(nlay):
-        for row in range(nrow):
-            slope = np.linspace(outcrop_z_min[layer_id], 
-                                outcrop_z_max[layer_id], 
-                                np.sum(irch[row, :] == layer_id))
-            top[row, irch[row, :] == layer_id] = slope
-
-    # Step 2: Add smooth transition between zones that extebds beyond layer_id's domain
-    for layer_id in range(nlay - 1):
-        # Find cells at the boundary between adjacent layers
-        transition_mask = (irch == layer_id) & (np.roll(irch, -1, axis=-1) == layer_id + 1)
-        
-        for row in range(nrow):
-            transition_indices = np.where(transition_mask[row, :])[0]
-            for idx in transition_indices:
-                # Apply transition starting at boundary and extending forward
-                start = idx
-                end = min(ncol-1, idx + transition_cells)
-                n = end - start
-                if n > 1:
-                    transition_range = np.linspace(outcrop_z_max[layer_id], top[row, end], n)
-                    top[row, start:end] = transition_range
-  
-    return top
-
-def compute_slope_left_contain(idomain, outcrop_z_min, outcrop_z_max, transition_cells):
-    """
-    Compute top elevations with smooth transitions between outcropping zones, adding linear slopes for each layer,
-    for left-dipping systems. The transition zone is added strictly within the active area defined by `idomain`
-    for each layer (it does not extend or modify the idomain).
-    Note:
-    This version ensures that the transition happens *within* the zone defined as active in `idomain`
-    for each layer. The transition is performed from the end of the current layers domain up to the
-    start of the next, without spilling into the next layer's active area.
-
-    Parameters:
-        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) indicating active (1) and inactive (0) cells.
-        outcrop_z_min (1D array-like): Minimum elevation for each layer (length nlay).
-        outcrop_z_max (1D array-like): Maximum elevation for each layer (length nlay).
-        transition_cells (int): Number of columns for the transition zone between layers.
-
-    Returns:
-        top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with contained transitions and slopes.
-    """
-
-    # Input checks
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    nlay, nrow, ncol = idomain.shape
-    outcrop_z_min = np.asarray(outcrop_z_min)
-    outcrop_z_max = np.asarray(outcrop_z_max)
-    if outcrop_z_min.shape[0] != nlay or outcrop_z_max.shape[0] != nlay:
-        raise ValueError("outcrop_z_min and outcrop_z_max must have length equal to nlay.")
-    if not isinstance(transition_cells, int) or transition_cells < 1:
-        raise ValueError("transition_cells must be a positive integer.")
-    
-    # Initialize top array
-    top = np.zeros((nrow, ncol), dtype=float)
-
-    # Compute topmost active layer index at each surface cell
-    active_layers = np.sum(idomain, axis=0)  # Shape will be (nrow, ncol)
-    irch = nlay - active_layers  # Values will range from 0 to nlay-1
-
-    # Step 1: Assign a sloping top elevation for each active layer
-    for layer_id in range(nlay):
-        for row in range(nrow):
-            slope = np.linspace(outcrop_z_min[layer_id], 
-                                outcrop_z_max[layer_id], 
-                                np.sum(irch[row, :] == layer_id))
-            top[row, irch[row, :] == layer_id] = slope
-
-
-    # Step 2: Add smooth transitions, but staying within the active zone of each layer
-    for layer_id in range(nlay - 1):
-        # Find cells at the boundary between adjacent layers
-        transition_mask = (irch == layer_id) & (np.roll(irch, -1, axis=-1) == layer_id + 1)
-        
-        for row in range(nrow):
-            transition_indices = np.where(transition_mask[row, :])[0]
-            for idx in transition_indices:
-                start = max(0, idx - transition_cells + 1)
-                end = idx + 1
-                n = end - start
-                if n > 1:
-                    transition_range = np.linspace(
-                        outcrop_z_max[layer_id], top[row, end], n)
-                    top[row, start:end] = transition_range
-  
-    return top
-
-def compute_slope_right_extend(idomain, outcrop_z_min, outcrop_z_max, transition_cells):
-    """
-    Compute top elevations with smooth transitions between recharge zones, adding linear slopes for each layer,
-    for right-dipping systems. The transition zone is extended beyond the active zones defined in `idomain`
-    by the extent specified by the `transition_cells` parameter (number of columns).
-    Note:
-    This version extends the top elevation transition *beyond* the active zones defined in `idomain`
-    by the extent specified by the `transition` parameter. This can be useful for certain visualization
-    or conceptual model setups, but it does not confine transitions strictly within each layer's input idomain.
-
-    Parameters:
-        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) indicating active (1) and inactive (0) cells.
-        outcrop_z_min (1D array-like): Minimum elevation for each layer (length nlay).
-        outcrop_z_max (1D array-like): Maximum elevation for each layer (length nlay).
-        transition_cells (int): Number of columns for the transition zone between layers.
-
-    Returns:
-        top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with extended transitions and slopes.
-    """
-
-    import numpy as np
-
-    # Input checks
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    nlay, nrow, ncol = idomain.shape
-    outcrop_z_min = np.asarray(outcrop_z_min)
-    outcrop_z_max = np.asarray(outcrop_z_max)
-    if outcrop_z_min.shape[0] != nlay or outcrop_z_max.shape[0] != nlay:
-        raise ValueError("outcrop_z_min and outcrop_z_max must have length equal to nlay.")
-    if not isinstance(transition_cells, int) or transition_cells < 1:
-        raise ValueError("transition_cells must be a positive integer.")
-
-    # Initialize top array 
-    top = np.zeros((nrow, ncol), dtype=float)
-
-    # Compute topmost active layer index at each surface cell
-    active_layers = np.sum(idomain, axis=0)  # Shape will be (nrow, ncol)
-    irch = nlay - active_layers  # Values will range from 0 to nlay-1
-
-    # Step 1: Assign a sloping top elevation for each active layer
-    for layer_id in range(nlay):
-        for row in range(nrow):
-            slope = np.linspace(outcrop_z_max[layer_id], 
-                                outcrop_z_min[layer_id], 
-                                np.sum(irch[row, :] == layer_id))
-            top[row, irch[row, :] == layer_id] = slope
-
-    # Step 2: Add smooth transitions that extend beyond the active zone (to the left)
-    for layer_id in range(nlay - 1):
-        # Find cells at the boundary between adjacent layers
-        transition_mask = (irch == layer_id) & (np.roll(irch, 1, axis=-1) == layer_id + 1)
-        
-        for row in range(nrow):
-            transition_indices = np.where(transition_mask[row, :])[0]
-            for idx in transition_indices:
-                # Apply the transition over the specified number of cells
-                start = max(0, idx - transition_cells + 1)
-                end = idx + 1
-                n = end - start
-                if n > 1:
-                    transition_range = np.linspace(
-                        outcrop_z_min[layer_id + 1], top[row, end], n)
-                    top[row, start:end] = transition_range
-  
-    return top
-
-def compute_slope_right_contain(idomain, outcrop_z_min, outcrop_z_max, transition_cells):
-    """
-    Compute top elevations with smooth transitions between recharge zones, adding linear slopes for each layer,
-    for right-dipping systems. The transition zone is added strictly within the active area defined by `idomain`
-    for each layer (it does not extend or modify the idomain).
-    Note:
-    This version ensures that the transition happens *within* the zone defined as active in `idomain`
-    for each layer. The transition is performed from the end of the current layers domain up to the
-    start of the next, without spilling into the next layer's active area.
-
-    Parameters:
-        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) indicating active (1) and inactive (0) cells.
-        outcrop_z_min (1D array-like): Minimum elevation for each layer (length nlay).
-        outcrop_z_max (1D array-like): Maximum elevation for each layer (length nlay).
-        transition_cells (int): Number of columns for the transition zone between layers.
-
-    Returns:
-        top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with contained transitions and slopes.
-    """
-
-    # Input checks
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    nlay, nrow, ncol = idomain.shape
-    outcrop_z_min = np.asarray(outcrop_z_min)
-    outcrop_z_max = np.asarray(outcrop_z_max)
-    if outcrop_z_min.shape[0] != nlay or outcrop_z_max.shape[0] != nlay:
-        raise ValueError("outcrop_z_min and outcrop_z_max must have length equal to nlay.")
-    if not isinstance(transition_cells, int) or transition_cells < 1:
-        raise ValueError("transition_cells must be a positive integer.")
-    
-    # Initialize top array
-    top = np.zeros((nrow, ncol), dtype=float)
-
-    # Compute topmost active layer index at each surface cell
-    active_layers = np.sum(idomain, axis=0)  # Shape will be (nrow, ncol)
-    irch = nlay - active_layers  # Values will range from 0 to nlay-1
-
-    # Step 1: Assign a sloping top elevation for each active layer
-    for layer_id in range(nlay):
-        for row in range(nrow):
-            slope = np.linspace(outcrop_z_max[layer_id], 
-                                outcrop_z_min[layer_id], 
-                                np.sum(irch[row, :] == layer_id))
-            top[row, irch[row, :] == layer_id] = slope
-
-    # Step 2: Add smooth transitions, but staying within the active zone of each layer
-    for layer_id in range(nlay - 1):
-        # Find cells at the boundary between adjacent layers
-        transition_mask = (irch == layer_id) & (np.roll(irch, 1, axis=-1) == layer_id + 1)
-        
-        for row in range(nrow):
-            transition_indices = np.where(transition_mask[row, :])[0]
-            for idx in transition_indices:
-                start = idx
-                end = min(ncol-1, idx + transition_cells)
-                n = end - start
-                if n > 1:
-                    transition_range = np.linspace(outcrop_z_min[layer_id + 1], top[row, end], n)
-                    top[row, start:end] = transition_range
- 
-    return top
-
-def compute_top_left_extend(idomain, outcrop_z, transition_cells):
-    """
-    Compute top elevations with smooth transitions between outcroping zones using outcrop_z values,
-    for left-dipping systems. The active area of zach layer is extended beyond the active zones defined in `idomain`
-    by the extent specified by the `transition_cells` parameter (number of columns).
-
-    Parameters:
-        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) indicating active (1) and inactive (0) cells.
-        outcrop_z (1D array-like): Array of top elevations for each layer (length nlay).
-        transition_cells (int): Number of columns for the transition zone between layers.
-
-    Returns:
-        top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with extended transitions.
-
-    Note:
-    This version extends the top elevation transition *beyond* the active zones defined in the input idomain
-    by the extent specified by the `transition_cells` parameter. This can be useful for certain visualization
-    or conceptual model setups, but it does not confine transitions strictly within each layer's original idomain.
-    """
-
-    # Input checks
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    nlay, nrow, ncol = idomain.shape
-    outcrop_z = np.asarray(outcrop_z)
-    if outcrop_z.shape[0] != nlay:
-        raise ValueError("outcrop_z must have length equal to nlay.")
-    if not isinstance(transition_cells, int) or transition_cells < 1:
-        raise ValueError("transition_cells must be a positive integer.")
-        
-    #Initialize top array
-    top = np.zeros((nrow, ncol), dtype=float)
-
-    # Compute the topmost active layer index at each cell
-    active_layers = np.sum(idomain, axis=0)  # (nrow, ncol)
-    irch = nlay - active_layers  # Topmost active layer index per cell
-
-    # Step 1: Assign base top elevations from outcrop_z
-    for layer_id in range(nlay):
-        top[irch == layer_id] = outcrop_z[layer_id]
-
-    # Step 2: Add transitions that extend beyond layer_id's domain
-    for layer_id in range(nlay - 1):
-        # Find transition boundaries: from layer_id to layer_id+1
-        transition_mask = (irch == layer_id) & (np.roll(irch, -1, axis=-1) == layer_id + 1)
-
-        for row in range(nrow):
-            transition_indices = np.where(transition_mask[row, :])[0]
-            for idx in transition_indices:
-                # Apply transition starting at boundary and extending forward
-                start = idx
-                end = min(ncol-1, idx + transition_cells)
-                n = end - start
-                if n > 1:
-                    top[row, start:end] = np.linspace(
-                        outcrop_z[layer_id], outcrop_z[layer_id + 1], n)
-
-    return top
-
-def compute_top_left_contain(idomain, outcrop_z, transition_cells):
-    """
-    Compute top elevations with smooth transitions between outcropping zones using outcrop_z values,
-    for left-dipping systems. The transition zone is added strictly within the active area defined by `idomain`
-    for each layer (it does not extend or modify the idomain).
-    Note:
-    This version ensures that the transition happens *within* the zone defined as active in `idomain`
-    for each layer. The transition is performed from the end of the current layers domain up to the
-    start of the next, without spilling into the next layer's active area.
-
-    Parameters:
-        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) indicating active (1) and inactive (0) cells.
-        outcrop_z (1D array-like): Array of top elevations for each layer (length nlay).
-        transition_cells (int): Number of columns for the transition zone between layers.
-
-    Returns:
-        top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with contained transitions.
-    """
-
-    # Input checks
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    nlay, nrow, ncol = idomain.shape
-    outcrop_z = np.asarray(outcrop_z)
-    if outcrop_z.shape[0] != nlay:
-        raise ValueError("outcrop_z must have length equal to nlay.")
-    if not isinstance(transition_cells, int) or transition_cells < 1:
-        raise ValueError("transition_cells must be a positive integer.")
-    
-    # Initialize top array
-    top = np.zeros((nrow, ncol), dtype=float)
-
-    # Compute topmost active layer index at each surface cell
-    active_layers = np.sum(idomain, axis=0)  # (nrow, ncol)
-    irch = nlay - active_layers  # topmost active layer
-
-    # Step 1: Assign base top elevations from outcrop_z
-    for layer_id in range(nlay):
-        top[irch == layer_id] = outcrop_z[layer_id]
-
-    # Step 2: Add smooth transitions, but staying within the active zone of each layer
-    for layer_id in range(nlay - 1):
-        # Identify boundary columns between layer_id and layer_id + 1
-        transition_mask = (irch == layer_id) & (np.roll(irch, -1, axis=-1) == layer_id + 1)
-
-        for row in range(nrow):
-            transition_indices = np.where(transition_mask[row, :])[0]
-            for idx in transition_indices:
-                start = max(0, idx - transition_cells + 1)
-                end = idx + 1  # include the boundary cell
-                n = end - start
-                if n > 1:
-                    top[row, start:end] = np.linspace(
-                        outcrop_z[layer_id], outcrop_z[layer_id + 1], n)
-
-    return top
-
-def compute_top_right_extend(idomain, outcrop_z, transition_cells):
-    """
-    Compute top elevations with smooth transitions between recharge zones using outcrop_z values,
-    for right-dipping systems. The transition zone is extended beyond the active zones defined in `idomain`
-    by the extent specified by the `transition_cells` parameter (number of columns).
-    Note:
-    This version extends the top elevation transition *beyond* the active zones defined in `idomain`
-    by the extent specified by the `transition` parameter. This can be useful for certain visualization
-    or conceptual model setups, but it does not confine transitions strictly within each layer's input idomain.
-
-    Parameters:
-        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) indicating active (1) and inactive (0) cells.
-        outcrop_z (1D array-like): Array of top elevations for each layer (length nlay).
-        transition_cells (int): Number of columns for the transition zone between layers.
-
-    Returns:
-        top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with extended transitions.
-    """
-
-    # Input checks
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    nlay, nrow, ncol = idomain.shape
-    outcrop_z = np.asarray(outcrop_z)
-    if outcrop_z.shape[0] != nlay:
-        raise ValueError("outcrop_z must have length equal to nlay.")
-    if not isinstance(transition_cells, int) or transition_cells < 1:
-        raise ValueError("transition_cells must be a positive integer.")
-    
-    # Initialize top array
-    top = np.zeros((nrow, ncol), dtype=float)
-
-    # Compute topmost active layer index at each surface cell
-    active_layers = np.sum(idomain, axis=0)  # (nrow, ncol)
-    irch = nlay - active_layers  # Topmost active layer index per cell
-
-    # Step 1: Assign base top elevations from outcrop_z
-    for layer_id in range(nlay):
-        top[irch == layer_id] = outcrop_z[layer_id]
-
-    # Step 2: Add transitions that extend beyond layer_id's domain
-    for layer_id in range(nlay - 1):
-        # Find transition boundaries: from layer_id to layer_id+1
-        transition_mask = (irch == layer_id) & (np.roll(irch, 1, axis=-1) == layer_id + 1)
-
-        for row in range(nrow):
-            transition_indices = np.where(transition_mask[row, :])[0]
-            for idx in transition_indices:
-                # Apply transition starting at boundary and extending forward
-                start = max(0, idx - transition_cells + 1)
-                end = idx+1
-                n = end - start
-                if n > 1:
-                    top[row, start:end] = np.linspace(
-                        outcrop_z[layer_id+1], outcrop_z[layer_id], n)
-
-    return top
-
-def compute_top_right_contain(idomain, outcrop_z, transition_cells):
-    """
-    Compute top elevations with smooth transitions between outcropping zones using outcrop_z values,
-    for right-dipping systems. The transition zone is added strictly within the active area defined by `idomain`
-    for each layer (it does not extend or modify the idomain).
-    Note:
-    This version ensures that the transition happens *within* the zone defined as active in `idomain`
-    for each layer. The transition is performed from the end of the current layers domain up to the
-    start of the next, without spilling into the next layer's active area.
-
-    Parameters:
-        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) indicating active (1) and inactive (0) cells.
-        outcrop_z (1D array-like): Array of top elevations for each layer (length nlay).
-        transition_cells (int): Number of columns for the transition zone between layers.
-
-    Returns:
-        top (numpy.ndarray): 2D array (nrow, ncol) of top elevations with contained transitions.
-    """
-
-    # Input checks
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    nlay, nrow, ncol = idomain.shape
-    outcrop_z = np.asarray(outcrop_z)
-    if outcrop_z.shape[0] != nlay:
-        raise ValueError("outcrop_z must have length equal to nlay.")
-    if not isinstance(transition_cells, int) or transition_cells < 1:
-        raise ValueError("transition_cells must be a positive integer.")
-
-    # Initialize top array
-    top = np.zeros((nrow, ncol), dtype=float)
-
-    # Compute topmost active layer index at each surface cell
-    active_layers = np.sum(idomain, axis=0)  # (nrow, ncol)
-    irch = nlay - active_layers  # topmost active layer index at each surface cell
-
-    # Step 1: Assign base top elevations from outcrop_z
-    for layer_id in range(nlay):
-        top[irch == layer_id] = outcrop_z[layer_id]
-
-    # Step 2: Smooth transitions, but staying within the active zone of each layer
-    for layer_id in range(nlay - 1):
-        # Identify boundary columns between layer_id and layer_id + 1
-        transition_mask = (irch == layer_id) & (np.roll(irch, 1, axis=-1) == layer_id + 1)
-
-        for row in range(nrow):
-            transition_indices = np.where(transition_mask[row, :])[0]
-            for idx in transition_indices:
-                start = idx 
-                end = min(ncol-1, idx + transition_cells)
-                n = end - start
-                if n > 1:
-                    top[row, start:end] = np.linspace(
-                        outcrop_z[layer_id + 1], outcrop_z[layer_id], n)
-    return top
-
-# ==========================================================================================
-# THICKNESS VARIANT FUNCTIONS - ADVANCED & EXPERIMENTAL SYNTHETIC GEOMETRY GENERATION
-# ==========================================================================================
-
-def compute_thickness_simple(idomain, base_thicknesses):
-    """
-    Compute the thickness array for each cell based on idomain and base_thicknesses.
-
-    Parameters:
-        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) indicating active (1) and inactive (0) cells.
-        base_thicknesses (1D array-like): Array of length nlay, with the base thickness for each model layer.
-
-    Returns:
-        thickness_array (numpy.ndarray): 3D array (nlay, nrow, ncol) with thicknesses.
-            Thickness is set to base_thickness for active cells (idomain == 1),
-            and 0 for inactive cells (idomain == 0).
-    """
-
-    # Input checks
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    nlay, nrow, ncol = idomain.shape
-    base_thicknesses = np.asarray(base_thicknesses)
-    if base_thicknesses.shape[0] != nlay:
-        raise ValueError("base_thicknesses must have length equal to nlay.")
-    
-    # Initialize the thickness array
-    thickness_array = np.zeros_like(idomain, dtype=float)
-
-    # Loop through each layer and assign thickness based on idomain
-    for layer in range(nlay):
-        thickness_array[layer, :, :] = np.where(idomain[layer, :, :] == 1, base_thicknesses[layer], 0)
-
-    return thickness_array
-
-def compute_thickness_extend(idomain, base_thicknesses, transition_cells):
-    """
-    Compute the thickness array with smooth transitions from base thickness to zero,
-    extending the transition zone beyond the active area defined by idomain.
-    Note:
-    This version extends the top elevation transition *beyond* the active zones defined in `idomain`
-    by the extent specified by the `transition` parameter. This can be useful for certain visualization
-    or conceptual model setups, but it does not confine transitions strictly within each layer's domain.
-
-    Parameters:
-        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) indicating active (1) and inactive (0) cells.
-        base_thicknesses (1D array-like): Array of length nlay, with the base thickness for each model layer.
-        transition_cells (int): Number of columns for the transition zone beyond the active area.
-
-    Returns:
-        thickness_array (numpy.ndarray): 3D array (nlay, nrow, ncol) with thicknesses.
-            Thickness is set to base_thickness for active cells (idomain == 1),
-            smoothly transitions to 0 over transition_cells beyond the active area,
-            and 0 for inactive cells outside the transition zone.
-    """
-
-    # Input checks
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    nlay, nrow, ncol = idomain.shape
-    base_thicknesses = np.asarray(base_thicknesses)
-    if base_thicknesses.shape[0] != nlay:
-        raise ValueError("base_thicknesses must have length equal to nlay.")
-    if not isinstance(transition_cells, int) or transition_cells < 1:
-        raise ValueError("transition_cells must be a positive integer.")
-    
-    # Initialize the thickness array
-    thickness_array = np.zeros_like(idomain, dtype=float)
-
-    # Loop through layers and apply base thickness and smooth transition
-    for layer in range(nlay):
-        # Get base thickness for the current layer
-        base_thickness = base_thicknesses[layer]
-        
-        # Set thickness for active cells (idomain == 1) to the base thickness
-        thickness_array[layer, :, :] = np.where(idomain[layer, :, :] == 1, base_thickness, 0)
-        
-        # Now we smooth the transition from base thickness to zero within the same layer
-        for row in range(nrow):
-            for col in range(ncol):
-                if idomain[layer, row, col] == 0:  # If the cell is inactive
-                    # Check if there are adjacent active cells to create a smooth transition
-                    if col > 0 and idomain[layer, row, col - 1] == 1:  # Transition from left
-                        transition_range = np.linspace(base_thickness, 0, transition_cells)
-                        # Apply transition over the next `transition_cells` columns
-                        for t in range(min(transition_cells, ncol - col)):
-                            thickness_array[layer, row, col + t] = transition_range[t]
-                    elif col < ncol - 1 and idomain[layer, row, col + 1] == 1:  # Transition from right
-                        transition_range = np.linspace(base_thickness, 0, transition_cells)
-                        # Apply transition over the previous `transition_cells` columns
-                        for t in range(min(transition_cells, col + 1)):
-                            thickness_array[layer, row, col - t] = transition_range[t]
-    
-    return thickness_array
-
-def compute_thickness_contain(idomain, base_thicknesses, transition_cells):
-    """
-    Compute the thickness array with smooth transitions from base thickness to zero,
-    but keep the transition strictly within the active area defined by idomain.
-    Note:
-    This version ensures that the transition happens *within* the zone defined as active in `idomain`
-    for each layer. The transition is performed from the end of the current layers domain up to the
-    start of the next, without spilling into the next layer's active area.
-
-    Parameters:
-        idomain (numpy.ndarray): 3D array (nlay, nrow, ncol) indicating active (1) and inactive (0) cells.
-        base_thicknesses (1D array-like): Array of length nlay, with the base thickness for each model layer.
-        transition_cells (int): Number of columns for the transition zone within the active area.
-
-    Returns:
-        thickness_array (numpy.ndarray): 3D array (nlay, nrow, ncol) with thicknesses.
-            Thickness is set to base_thickness for active cells (idomain == 1),
-            smoothly transitions to 0 within the last transition_cells of the active area,
-            and 0 for inactive cells.
-    """
-
-    # Input checks
-    if idomain.ndim != 3:
-        raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    nlay, nrow, ncol = idomain.shape
-    base_thicknesses = np.asarray(base_thicknesses)
-    if base_thicknesses.shape[0] != nlay:
-        raise ValueError("base_thicknesses must have length equal to nlay.")
-    if not isinstance(transition_cells, int) or transition_cells < 1:
-        raise ValueError("transition_cells must be a positive integer.")
-
-    # Initialize the thickness array
-    thickness_array = np.zeros_like(idomain, dtype=float)
-
-    # Loop through layers and apply base thickness and smooth transition
-    for layer in range(nlay):
-        # Get base thickness for the current layer
-        base_thickness = base_thicknesses[layer]
-        
-        # Set thickness for active cells (idomain == 1) to the base thickness
-        thickness_array[layer, :, :] = np.where(idomain[layer, :, :] == 1, base_thickness, 0)
-        
-        # Now we smooth the transition from base thickness to zero within the same layer
-        for row in range(nrow):
-            for col in range(ncol):
-                if idomain[layer, row, col] == 0:  # If the cell is inactive
-                    # Check if there are adjacent active cells to create a smooth transition
-                    if col > 0 and idomain[layer, row, col - 1] == 1:  # Transition from left
-                        transition_range = np.linspace(0, base_thickness, transition_cells)
-                        # Apply transition over the next `transition_cells` columns
-                        for t in range(min(transition_cells, ncol - col)):
-                            thickness_array[layer, row, col - t] = transition_range[t]
-                    elif col < ncol - 1 and idomain[layer, row, col + 1] == 1:  # Transition from right
-                        transition_range = np.linspace(0, base_thickness, transition_cells)
-                        # Apply transition over the previous `transition_cells` columns
-                        for t in range(min(transition_cells, col + 1)):
-                            thickness_array[layer, row, col + t] = transition_range[t]
-    
-    return thickness_array
-
-
-
-
 
 
 

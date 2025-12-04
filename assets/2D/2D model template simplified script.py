@@ -306,10 +306,10 @@ if STEADY:
                             print_option="SUMMARY",
                             complexity="COMPLEX",
                             outer_dvclose=0.00001,
-                            outer_maximum=100,
+                            outer_maximum=500,
                             under_relaxation="SIMPLE",
                             under_relaxation_gamma=0.2,
-                            inner_maximum=100,
+                            inner_maximum=500,
                             inner_dvclose=0.00001,
                             rcloserecord=0.0001,
                             linear_acceleration="BICGSTAB",
@@ -350,7 +350,7 @@ if STEADY:
         head_filerecord = f"output/{model_name}.hds",
         budget_filerecord = f"output/{model_name}.cbb",
         budgetcsv_filerecord = f"output/{model_name}_budget.csv",
-        saverecord = [("HEAD", "ALL"), ("BUDGET", "LAST")],
+        saverecord = [("HEAD", "ALL"), ("BUDGET", "ALL")],
         printrecord = [("HEAD", "LAST"),("BUDGET", "LAST")], 
         filename = f"{model_name}.oc")
 
@@ -401,32 +401,20 @@ if STEADY:
                                 filename = f"{model_name}.wel")
 
     # General Head Boundary package
-    zone_layers = np.arange(10, 15)      # layers 10, 11, 12, 13, 14 (pumped aquifer)
-    other_layers = np.setdiff1d(np.arange(nlay), zone_layers)
-
-    # --- GHB1: all layers except zone layers
-    ghb_spd1 = {0: [((ilay, irow, ncol-1),
-                    ztop[0, 0, ncol-1],
-                    kh[ilay] * thickness_array[ilay, irow, ncol-1] * drow,
-                    f"Layer{ilay}")
-                    for ilay in other_layers for irow in range(nrow)]}
-
-    ghb1 = flopy.mf6.ModflowGwfghb(
-        gwf, pname="ghb1", boundnames=True,
-        print_input=True, print_flows=True, save_flows=True,
-        filename=f"{model_name}_ghb1.ghb", stress_period_data=ghb_spd1)
-
-    # --- GHB2: only zone layers
-    ghb_spd2 = {0: [((ilay, irow, ncol-1),
-                    ztop[0, 0, ncol-1],
-                    kh[ilay] * thickness_array[ilay, irow, ncol-1] * drow,
-                    f"Layer{ilay}")
-                    for ilay in zone_layers for irow in range(nrow)]}
-
-    ghb2 = flopy.mf6.ModflowGwfghb(
-        gwf, pname="ghb2", boundnames=True,
-        print_input=True, print_flows=True, save_flows=True,
-        filename=f"{model_name}_ghb2.ghb", stress_period_data=ghb_spd2)
+    ghb_1 = ztop[0,0,ncol-1] # Head in the GHB
+    ghb_spd1 = {}
+    ghb_spd1[0] = [
+        ((ilay, irow, ncol-1), ghb_1, kh[ilay] * thickness_array[ilay, irow, ncol-1] * drow, f"Layer{ilay}")
+        for ilay in range(nlay)
+        for irow in range(nrow)] #Conductance set to transmissivity of the cell
+    ghb = flopy.mf6.ModflowGwfghb(gwf,
+                                    pname="ghb",
+                                    print_input=True,
+                                    print_flows=True,
+                                    save_flows=True,
+                                    boundnames=True,
+                                    filename = f"{model_name}.ghb",
+                                    stress_period_data=ghb_spd1)
     
     # ---------------------------------- OBSERVATIONS --------------------------------------- #
 

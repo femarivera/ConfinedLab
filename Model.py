@@ -311,7 +311,7 @@ if STEADY:
                             under_relaxation_gamma=0.2,
                             inner_maximum=100,
                             inner_dvclose=0.00001,
-                            rcloserecord=0.0001,
+                            rcloserecord=0.001,
                             linear_acceleration="BICGSTAB",
                             scaling_method="NONE",
                             reordering_method="NONE",

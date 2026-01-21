@@ -97,7 +97,7 @@ def plot_head_time_series(head_file_path,
     if time_units == 'days':
         time_axis = csv["time"]  # Assuming input time is in days
         time_axis_label = 'Time [days]'
-    if time_units == 'years':
+    elif time_units == 'years':
         time_axis = csv["time"] / 360  # Convert days to years
         time_axis_label = 'Time [years]'
     else:
@@ -1444,6 +1444,10 @@ def timestep_index_from_totim(stress_period_data, totim, tol=1e-9):
     ValueError
         If totim does not correspond (within tolerance) to an end-of-step time, or totim is outside simulation time.
     """
+    # Handle totim = 0 immediately
+    if abs(totim) <= tol:
+        return 0, 0, 0
+    
     time_steps = compute_time_steps(stress_period_data)
 
     elapsed = 0.0

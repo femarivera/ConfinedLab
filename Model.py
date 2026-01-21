@@ -306,16 +306,16 @@ if STEADY:
                             print_option="SUMMARY",
                             complexity="COMPLEX",
                             outer_dvclose=0.00001,
-                            outer_maximum=100,
+                            outer_maximum=200,
                             under_relaxation="SIMPLE",
-                            under_relaxation_gamma=0.2,
-                            inner_maximum=100,
+                            under_relaxation_gamma=0.1,
+                            inner_maximum=200,
                             inner_dvclose=0.00001,
                             rcloserecord=0.01,
                             linear_acceleration="BICGSTAB",
                             scaling_method="NONE",
                             reordering_method="NONE",
-                            relaxation_factor=0.97,
+                            relaxation_factor=0.9,
                             filename=f"{model_name}.ims")
     sim.register_ims_package(ims, [gwf.name])
 

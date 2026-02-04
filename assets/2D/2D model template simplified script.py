@@ -204,16 +204,16 @@ if subdivide_layers:
     ss_array = modgeom6.subdivide_array(ss_array, nsub)
     sy_array = modgeom6.subdivide_array(sy_array, nsub)
 
+    # Recompute irch and recharge 2D arrays
+    irch = modgeom6.compute_irch(idomain)
+    R_array = modgeom6.compute_recharge(irch, recharge)
+
     # Compute storage coefficient, sto_cell_type, transmissivity, and diffusivity 3D arrays
     sy_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-1) # List of top most active cells
     storage_coeff = modgeom6.storage_coefficient(sy_cells, idomain, ss_array, sy_array, thickness_array)
     sto_cell_type = modgeom6.storage_cell_type(sy_cells, idomain)
     transmissivity = kh_array * thickness_array
     diffusivity = np.where(idomain==1, transmissivity / storage_coeff, np.nan)
-
-    # Recompute irch and recharge 2D arrays
-    irch = modgeom6.compute_irch(idomain)
-    R_array = modgeom6.compute_recharge(irch, recharge)
 
 # ------------------------------------------------------------------------------- #
 # -------------------------- RESPONSE TIME PARAMETERS --------------------------- #
@@ -305,13 +305,13 @@ if STEADY:
     ims = flopy.mf6.ModflowIms(sim, pname="ims",
                             print_option="SUMMARY",
                             complexity="COMPLEX",
-                            outer_dvclose=0.00001,
-                            outer_maximum=500,
+                            outer_dvclose=0.000001,
+                            outer_maximum=2000,
                             under_relaxation="SIMPLE",
-                            under_relaxation_gamma=0.2,
-                            inner_maximum=500,
-                            inner_dvclose=0.00001,
-                            rcloserecord=0.0001,
+                            under_relaxation_gamma=0.1,
+                            inner_maximum=2000,
+                            inner_dvclose=0.000001,
+                            rcloserecord=0.00001,
                             linear_acceleration="BICGSTAB",
                             scaling_method="NONE",
                             reordering_method="NONE",

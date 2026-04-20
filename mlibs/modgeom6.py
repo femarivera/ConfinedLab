@@ -376,7 +376,7 @@ def idomain_from_thickness(thickness_array, epsilon):
         raise ValueError("epsilon must be a non-negative number.")
 
     # Set idomain to 1 (active) where thickness > epsilon, else 0 (inactive)
-    idomain = np.where(thickness_array > epsilon, 1, 0)
+    idomain = np.where(thickness_array >= epsilon, 1, 0)
     
     return idomain
 
@@ -420,16 +420,15 @@ def compute_irch(idomain):
     # Input checks
     if idomain.ndim != 3:
         raise ValueError("idomain must be a 3D array (nlay, nrow, ncol).")
-    
-    # Calculate the number of layers
-    nlay = idomain.shape[0]
-    
-    # Sum idomain across the layers
-    active_layers = np.sum(idomain, axis=0)
-    
-    # Calculate irch
-    irch = nlay - active_layers
-    
+    # # Calculate the number of layers
+    # nlay = idomain.shape[0]
+    # # Sum idomain across the layers
+    # active_layers = np.sum(idomain, axis=0)
+    # # Calculate irch
+    # irch = nlay - active_layers
+    active = idomain == 1
+    irch = np.argmax(active, axis=0)          # first active layer
+    irch[~np.any(active, axis=0)] = -1       # mark fully inactive columns
     return irch
 
 def compute_recharge(irch, R):

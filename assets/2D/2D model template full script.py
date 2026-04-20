@@ -404,7 +404,7 @@ if STEADY:
             modbound6.export_grid_topview(nrow, ncol, drow, dcol, irch, out_shp=f"{gis_folder}/grid_topview.shp", crs="EPSG:4326")
             riv_cells = modbound6.active_cells_from_line(f"{gis_folder}/grid_topview.shp", f"{gis_folder}/river.shp")
         else:
-            riv_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-1)
+            riv_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-2)
         riv_spd = modbound6.create_riv_spd(
             riv_cells,
             ztop,
@@ -424,7 +424,7 @@ if STEADY:
                                     filename = f"{model_name}.riv")
     else: 
         # Drain package
-        drn_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-1)
+        drn_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-2)
         # drn_cells = [t for t in drn_cells if t not in riv_cells]
         drn_spd = modbound6.create_drn_spd(
             drn_cells,

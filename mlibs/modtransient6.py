@@ -21,11 +21,11 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.cm import get_cmap
+from matplotlib.colors import LogNorm
 import numpy as np
 import os
 import sys
 import flopy
-
 from scipy.optimize import curve_fit
 from sklearn.metrics import r2_score
 
@@ -378,8 +378,8 @@ def process_csv_zonebudget(csv_path):
     columns_storage_sy_out = [col for col in df.columns if "STO" in col and "OUT" in col and "SY" in col]
 
     # Calculate reference inflow and outflow at time zero (reference state)
-    reference_inflow = df.loc[df['totim'] == 0, inflow_columns].sum(axis=1).values[0]
-    reference_outflow = df.loc[df['totim'] == 0, outflow_columns].sum(axis=1).values[0]
+    reference_inflow = df.loc[df['totim'] == df['totim'].min(), inflow_columns].sum(axis=1).values[0]
+    reference_outflow = df.loc[df['totim'] == df['totim'].min(), outflow_columns].sum(axis=1).values[0]
 
     # Compute components using vectorized operations
     induced_recharge = df[inflow_columns].sum(axis=1) - reference_inflow
@@ -1550,6 +1550,8 @@ def plot_transient_heads(
     # --- Extract transient head array at given time ---
     array = transient_heads[step]
     array = np.where(idomain == 0, np.nan, array)
+    array = np.where(array == 1E30, np.nan, array)
+    array = np.where(array == -1E30, np.nan, array)
 
     # --- Set up figure ---
     fig = plt.figure(figsize=(19, 5))
@@ -1709,6 +1711,8 @@ def plot_transient_heads_tr(
 
     # --- Extract transient head array at that time ---
     array = transient_heads[step]
+    array = np.where(array == 1E30, np.nan, array)
+    array = np.where(array == -1E30, np.nan, array)
     array = np.where(idomain == 0, np.nan, array)
 
     # --- Extract time series for the given cell ---
@@ -2154,7 +2158,10 @@ def plot_residual_diffusion_tr(
     plot_name : str = "residual_diffusion_tr.png",
     boundary_keywords=None,
     ve: float = 10,
-    interfaces: np.ndarray = None,):
+    interfaces: np.ndarray = None,
+    relative_diffusion: bool = False,
+    stability_threshold: float = 1.0e-3
+    ):
     """
     Plots the absolute residual diffusion between transient and steady-state heads
     both as a cross section (top subplot) and a time series at a given cell (bottom subplot).
@@ -2172,12 +2179,23 @@ def plot_residual_diffusion_tr(
     # --- Determine timestep ---
     step = timestep_index_from_totim(perioddata, time)[0]
 
-    # --- Compute residual (unchanged) ---
-    array = np.abs(transient_heads[step] - steady_state_heads)
+    # --- Compute residual diffusion ---
+    if relative_diffusion:
+        denominator = np.abs(transient_heads[0] - steady_state_heads)
+        denominator = np.where(denominator > stability_threshold, denominator, np.nan)
+        array = 100 * np.abs(transient_heads[step] - steady_state_heads) / denominator
+    else:
+        array = np.abs(transient_heads[step] - steady_state_heads)
 
     # --- Time series extraction ---
     lay, row, col = cell
-    full_series = np.abs(transient_heads[:, lay, row, col] - steady_state_heads[lay, row, col])
+
+    if relative_diffusion:
+        denominator = np.abs(transient_heads[0, lay, row, col] - steady_state_heads[lay, row, col])
+        denominator = denominator if denominator > stability_threshold else np.nan
+        full_series =100 * np.abs(transient_heads[:, lay, row, col] - steady_state_heads[lay, row, col]) / denominator
+    else:
+        full_series = np.abs(transient_heads[:, lay, row, col] - steady_state_heads[lay, row, col])
 
     # --- Handle start/end times ---
     if start_time is not None:
@@ -3801,7 +3819,8 @@ def response_time_array_relative(
     histogram=False,
     histogram_bins=None,
     histogram_name="Response_time_relative_histogram.png",
-    interfaces=None):
+    interfaces=None, 
+    log = False):
     """
     Compute the response time from relative residual diffusion.
 
@@ -3864,7 +3883,9 @@ def response_time_array_relative(
     histogram_name : str, optional
         Name of the histogram plot file
     interfaces : ndarray, optional
-        Array of interface elevations for plotting  
+        Array of interface elevations for plotting 
+    log: Boolean
+        Uses logarithmic scale for array plotting 
 
     Returns
     -------
@@ -3939,7 +3960,13 @@ def response_time_array_relative(
 
     # Use middle row for cross-section
     mx = flopy.plot.PlotCrossSection(ax=ax, model=gwf, line={"row": nrow // 2})
-    pa = mx.plot_array((response_time_array) / 360, alpha=1, cmap="viridis", vmin=vmin, vmax=vmax)
+
+    if log: 
+        pa = mx.plot_array((response_time_array) / 360, alpha=1, cmap="viridis", vmin=vmin, vmax=vmax, 
+                           norm = LogNorm(vmin=vmin, vmax=vmax))
+    else:
+        pa = mx.plot_array((response_time_array) / 360, alpha=1, cmap="viridis", vmin=vmin, vmax=vmax)
+
     mx.plot_grid(color="0.5", alpha=0.2)
 
     # Default color mapping based on boundary condition type
@@ -4048,365 +4075,6 @@ def response_time_array_relative(
             plt.close()
 
     return mean_value, median_value, percentile_95, max_value # return statistics of response time
-
-# Experimental: Mean Action Time calculation
-def mean_action_time(gwf,
-    steady_state_heads,
-    transient_heads,
-    times_list,
-    zone_array=None,
-    stability_threshold=0.01,
-    array_output_folder=None,
-    fig_output_folder=None,
-    save_array=True,
-    save_plot=True,
-    show_plot=False,
-    start_step=0,
-    boundary_keywords=None,
-    max_initial_diff=False,
-    fill="nan",
-    ve=10,
-    fig_name="Response_time_MAT.png",
-    array_name="response_time_MAT.npy",
-    histogram=False,
-    histogram_bins=None,
-    histogram_name="response_time_MAT_histogram.png"
-):
-    """
-    Computes the mean action time of transient heads to steady state
-
-    Parameters
-    ----------
-    """
-    # Extract shapes
-    ntime, nlay, nrow, ncol = transient_heads.shape
-    end_step = transient_heads.shape[0] - 1
-    times = np.array(times_list)
-
-    # Subset arrays and time domain
-    times_sub = times[start_step:] - times[start_step]
-    transient_sub = transient_heads[start_step:, :, :, :]
-    ntime_sub = transient_sub.shape[0]
-
-    # Output arrays
-    G = np.full((ntime_sub, nlay, nrow, ncol), np.nan)
-    g = np.full((ntime_sub, nlay, nrow, ncol), np.nan)
-    M = np.full((nlay, nrow, ncol), np.nan)
-    V = np.full((nlay, nrow, ncol), np.nan)
-    tr = np.full((nlay, nrow, ncol), np.nan)
-
-    # ------------------------------ Compute relative response time ----------------------------------- #
-    # Precompute initial difference (denominator)
-    initial_diff = np.abs(transient_heads[start_step] - steady_state_heads)
-
-    # Mask for small (near zero) initial differences
-    zero_diff_mask = initial_diff <= stability_threshold
-    initial_diff = initial_diff.astype(float)
-    initial_diff[zero_diff_mask] = np.nan
-    initial_diff_max = np.nanmax(initial_diff)
-    if np.all(np.isnan(initial_diff)):
-        print("No residual diffusion higher than the stability threshold — returning NaN")
-        return np.nan, np.nan
-
-    if max_initial_diff:
-        denominator = initial_diff_max
-    else:
-        denominator = initial_diff
-    
-    # === Compute G(t) ===
-    for i in range(ntime_sub):
-        G[i] = 1 - (np.abs(transient_sub[i] - steady_state_heads) / denominator)
-    
-    # === Compute g(t) = dG/dt ===
-    dt = np.gradient(times_sub)
-    for i in range(1, ntime_sub):
-        g[i] = (G[i] - G[i - 1]) / dt[i]
-    g[0] = g[1]  # fill first step
-
-    # === Compute M and V for each cell ===
-    for k in range(nlay):
-        for r in range(nrow):
-            for c in range(ncol):
-                gt = g[:, k, r, c]
-                tt = times_sub
-                if np.any(np.isnan(gt)) or np.all(gt == 0):
-                    M[k, r, c] = np.nan
-                    V[k, r, c] = np.nan
-                    tr[k, r, c] = np.nan
-                    continue
-
-                # Integrals via trapezoidal rule
-                M_val = np.trapz(tt * gt, tt)
-                V_val = np.trapz((tt - M_val) ** 2 * gt, tt)
-
-                M[k, r, c] = M_val
-                V[k, r, c] = V_val
-                tr[k, r, c] = M_val + np.sqrt(V_val)
-
-    # Save response time array if requested
-    tr[np.isnan(initial_diff)] = np.nan
-    if save_array and array_output_folder:
-        np.save(f"{array_output_folder}/{array_name}", tr)
-
-    # Set cells with small initial difference to the max found response time, start time or Nan (for visualization)
-    if fill == "max":
-        tr[np.isnan(initial_diff)] = np.nan
-        max_response_time = np.nanmax(tr)
-        tr[np.isnan(initial_diff)] = max_response_time
-    elif fill == "start":
-        tr[np.isnan(initial_diff)] = 0
-    elif fill == "nan":
-        tr[np.isnan(initial_diff)] = np.nan
-    else:
-        raise ValueError("fill must be 'max', 'start', or 'nan'")
-            
-    # Plotting
-    fig = plt.figure(figsize=(19, 5))
-    ax = fig.add_subplot(1, 1, 1)
-
-    # Use middle row for cross-section
-    mx = flopy.plot.PlotCrossSection(ax=ax, model=gwf, line={"row": nrow // 2})
-    pa = mx.plot_array(tr / 360, alpha=1, cmap="viridis", vmin=0)
-    mx.plot_grid(color="0.5", alpha=0.2)
-
-    # Default color mapping based on boundary condition type
-    color_map = {
-        "RIV": "blue",
-        "WEL": "red",
-        "GHB": "black",
-        "DRN": "gray",
-        "CHD": "purple"}
-
-    # Dynamically plot boundary conditions based on keywords
-    if boundary_keywords:
-        for bc in boundary_keywords:
-            # Determine color based on the keyword
-            bc_color = None
-            for key in color_map:
-                if key in bc:  # Check if the keyword contains the key
-                    bc_color = color_map[key]
-                    break
-            # Plot the boundary condition with the appropriate color
-            if bc_color:
-                mx.plot_bc(bc, color=bc_color)
-
-    cb = plt.colorbar(pa, ax=ax)
-    cb.set_label("Response time - MAT + VAT (years)")
-    ax.set_title(f"Response time")
-    ax.set_aspect(ve)
-    plt.tight_layout()
-
-    if save_plot and fig_output_folder:
-        fig.savefig(f"{fig_output_folder}/{fig_name}", dpi=300)
-
-    if show_plot:
-        plt.show()
-    else:
-        plt.close(fig)
-
-    # ------------------------------ Histogram plotting ------------------------------ #
-    if histogram:
-        plt.figure(figsize=(8, 5))
-
-        # Flatten, remove NaNs, and convert to years
-        hist_data = tr / 360
-        hist_data[np.isnan(initial_diff)] = np.nan
-        flat_data = hist_data.flatten()
-        flat_data = flat_data[~np.isnan(flat_data)]
-
-        # Plot histogram and capture bin info
-        counts, bin_edges, patches = plt.hist(flat_data, bins=histogram_bins, edgecolor='black')
-
-        # Automatically cut the x-axis from the upper limit of the first bin
-        first_bin_max = bin_edges[1]
-        plt.xlim(first_bin_max, None)
-    
-        # Find the max count among bins that are still visible
-        visible_mask = bin_edges[:-1] >= first_bin_max
-        visible_max = counts[visible_mask].max() if np.any(visible_mask) else counts.max()
-        plt.ylim(0, visible_max * 1.05)  # add 5% padding
-
-        # Compute max response time (in years)
-        max_value = np.nanmax(flat_data)
-
-        # Add annotation box in upper-left corner
-        textstr = f"Max response time: {max_value:.2f} years"
-        plt.text(
-            0.02, 0.97, textstr,
-            transform=plt.gca().transAxes,  # position in axes coordinates
-            fontsize=10,
-            verticalalignment='top',
-            horizontalalignment='left',
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="black", alpha=0.8))
-
-        # Label and style
-        plt.xlabel("Response time (years)")
-        plt.ylabel("Frequency")
-        plt.title("Histogram of response times")
-        plt.tight_layout()
-
-        # Save and/or show
-        if fig_output_folder:
-            plt.savefig(f"{fig_output_folder}/{histogram_name}", dpi=300)
-        if show_plot:
-            plt.show()
-        else:
-            plt.close()
-
-    # -------------------------------- Time series plotting --------------------------------- #
-    # Compute mean, min, max time series for G and g
-    G_mean = np.nanmean(G.reshape(ntime_sub, -1), axis=1)
-    G_min = np.nanmin(G.reshape(ntime_sub, -1), axis=1)
-    G_max = np.nanmax(G.reshape(ntime_sub, -1), axis=1)
-
-    g_mean = np.nanmean(g.reshape(ntime_sub, -1), axis=1)
-    g_min = np.nanmin(g.reshape(ntime_sub, -1), axis=1)
-    g_max = np.nanmax(g.reshape(ntime_sub, -1), axis=1)
-
-    times_years = times_sub / 360.0
-
-    # Compute mean and max response times in years
-    tr[np.isnan(initial_diff)] = np.nan
-    tr_mean = np.nanmean(tr) / 360
-    tr_max = np.nanmax(tr) / 360
-
-    fig, axs = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
-
-    # --- G(t) subplot ---
-    axs[0].fill_between(times_years, G_min, G_max, color="lightblue", alpha=0.4)
-    axs[0].plot(times_years, G_mean, "--", color="blue", linewidth=2, label="G(t) mean")
-    axs[0].plot(times_years, G_min, "--", color="black", linewidth=1, label="G(t) min/max")
-    axs[0].plot(times_years, G_max, "--", color="black", linewidth=1)
-    axs[0].set_ylabel("G(t)")
-    if tr_max is not None and np.isfinite(tr_max):
-        xlim_right = 2 * tr_max
-    elif len(times_years) > 0 and np.isfinite(times_years[-1]):
-        xlim_right = times_years[-1]
-    axs[0].set_xlim(0, xlim_right)
-    axs[0].set_title("Mean action time analysis")
-    axs[0].grid(True)
-
-    # --- g(t) subplot ---
-    axs[1].fill_between(times_years, g_min, g_max, color="lightblue", alpha=0.4)
-    axs[1].plot(times_years, g_mean, "--", color="blue", linewidth=2, label="g(t) mean")
-    axs[1].plot(times_years, g_min, "--", color="black", linewidth=1, label="g(t) min/max")
-    axs[1].plot(times_years, g_max, "--", color="black", linewidth=1)
-    if tr_max is not None and np.isfinite(tr_max):
-        xlim_right = 2 * tr_max
-    elif len(times_years) > 0 and np.isfinite(times_years[-1]):
-        xlim_right = times_years[-1]
-    axs[1].set_xlim(0, xlim_right)
-    axs[1].set_xlabel("Time (years)")
-    axs[1].set_ylabel("g(t)")
-    axs[1].grid(True)
-
-    # --- Add vertical lines for mean M, V, tr ---
-    for val, name, color in zip([tr_mean, tr_max], ["Mean response time", "Max response time"], ["green", "red"]):
-        axs[0].axvline(val, color=color, linestyle=":", linewidth=1.5, label=f"{name} mean")
-        axs[1].axvline(val, color=color, linestyle=":", linewidth=1.5)
-
-    # Annotation box (upper right corner of g subplot)
-    text_str = (
-        f"Mean response time = {tr_mean:.0f} years\n"
-        f"Max response time = {tr_max:.0f} years"
-    )
-    axs[1].text(
-        0.98, 0.98, text_str,
-        transform=axs[1].transAxes,
-        fontsize=9,
-        verticalalignment="top",
-        horizontalalignment="right",
-        bbox=dict(facecolor="white", alpha=0.8, edgecolor="gray"))
-
-    axs[0].legend(loc="lower right", fontsize=8)
-    plt.tight_layout()
-
-    if fig_output_folder and save_plot:
-        os.makedirs(fig_output_folder, exist_ok=True)
-        plt.savefig(os.path.join(fig_output_folder, "diff_MAT_total.png"), dpi=300, bbox_inches="tight")
-
-    if show_plot:
-        plt.show()
-    else:
-        plt.close(fig)
-
-    # ------------------------------ Zone-based MAT analysis ------------------------------ #
-    if zone_array is not None:
-        import pandas as pd
-
-        unique_zones = np.unique(zone_array[~np.isnan(zone_array)])
-        unique_zones = unique_zones.astype(int)
-
-        # Store time series and stats per zone
-        zone_stats = []
-        zone_G_data = {}
-
-        for zid in unique_zones:
-            mask = zone_array == zid
-
-            # Flatten masked G values per timestep
-            G_zone = G[:, mask]
-            G_mean_zone = np.nanmean(G_zone, axis=1)
-            G_min_zone = np.nanmin(G_zone, axis=1)
-            G_max_zone = np.nanmax(G_zone, axis=1)
-
-            # Response time stats per zone
-            tr_zone = tr[mask]
-            tr_mean_zone = np.nanmean(tr_zone) / 360
-            tr_max_zone = np.nanmax(tr_zone) / 360
-
-            zone_stats.append({"zone": zid, "tr_mean": tr_mean_zone, "tr_max": tr_max_zone})
-            zone_G_data[zid] = (G_mean_zone, G_min_zone, G_max_zone)
-
-        # Global max tr among zones for consistent scaling
-        global_tr_max = np.nanmax([z["tr_max"] for z in zone_stats])
-
-        # --- Plot 5-subplot figure ---
-        fig, axs = plt.subplots(5, 1, figsize=(10, 14), sharex=True)
-
-        # Limit to first 5 zones if more exist
-        for i, zid in enumerate(unique_zones[:5]):
-            G_mean_zone, G_min_zone, G_max_zone = zone_G_data[zid]
-            stats = next(z for z in zone_stats if z["zone"] == zid)
-
-            ax = axs[i]
-            ax.fill_between(times_years, G_min_zone, G_max_zone, color="lightblue", alpha=0.4)
-            ax.plot(times_years, G_mean_zone, "--", color="blue", linewidth=2, label=f"Zone {zid} mean")
-            ax.plot(times_years, G_min_zone, "--", color="black", linewidth=1, label="min/max")
-            ax.plot(times_years, G_max_zone, "--", color="black", linewidth=1)
-
-            # Vertical lines for mean and max response time
-            ax.axvline(stats["tr_mean"], color="green", linestyle=":", linewidth=1.5, label=f"Mean tr: {stats['tr_mean']:.0f} yr")
-            ax.axvline(stats["tr_max"], color="red", linestyle=":", linewidth=1.5, label=f"Max tr: {stats['tr_max']:.0f} yr")
-            if global_tr_max is not None and np.isfinite(global_tr_max):
-                xlim_right = 2 * global_tr_max
-            elif len(times_years) > 0 and np.isfinite(times_years[-1]):
-                xlim_right = times_years[-1]
-            ax.set_xlim(0, xlim_right)
-            ax.set_ylabel("G(t)")
-            ax.set_title(f"Zone {zid} – Mean action time")
-            ax.grid(True)
-            ax.legend(fontsize=8, loc="lower right")
-            # Legend
-            ax.legend(fontsize=8, loc="lower right")
-
-        axs[-1].set_xlabel("Time (years)")
-        plt.tight_layout()
-
-        if fig_output_folder and save_plot:
-            plt.savefig(os.path.join(fig_output_folder, "diff_MAT_zones.png"), dpi=300, bbox_inches="tight")
-
-        if show_plot:
-                plt.show()
-        else:
-            plt.close(fig)
-
-        # Save CSV summary
-        if array_output_folder:
-            df = pd.DataFrame(zone_stats)
-            df.to_csv(os.path.join(array_output_folder, "tr_zones_MAT.csv"), index=False)
-
-    return tr_mean, tr_max
 
 def perform_mat_analysis(csv_path, time_col=0, var_col=1, fig_output_folder=".", fig_name="mat_analysis.png", sep=","):
     """

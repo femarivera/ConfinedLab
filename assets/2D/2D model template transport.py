@@ -62,16 +62,16 @@ LOAD_MODEL = False # Loads an existing model to postprocess.
 
 STEADY = True # Builds and runs a steady state simulation
 TRANSIENT = True # Builds and runs a transient simulation
-
+TRANSPORT = True # Builds and runs a transport simulation
 # ------------------------------- POSTPROCESS OPTIONS --------------------------- #
 post_steady = True # Postprocess steady state outputs
 
 post_transient = True # Postprocess transient outputs
 response_times = True # Estimates response times from model transient files
-animate = False # Animates transient cross sections
 plot_maps = True # If True, plots map views of heads and flows
 
 # --------------------- MODEL STRUCTURE OPTIONS --------------------------------- #
+heterogeneity = False 
 subdivide_layers = True
 
 boundary_keywords = ["GHB", "WEL", "DRN"]
@@ -106,6 +106,17 @@ length = float(grid_df["lcol"][0]) # Total lenght of model in meters
 width = float(grid_df["lrow"][0]) # Total width of model in meters
 dcol = int(grid_df["dcol"][0]) # Column size in meters
 drow = int(grid_df["drow"][0]) # Row size in meters
+
+# ------------------------------------------------------------------------------- #
+# --------------------------- TIME DISCRETIZATION ------------------------------- #
+# ------------------------------------------------------------------------------- #
+
+tdis_df = pd.read_excel(setup_file, sheet_name="tdis")
+nper = len(tdis_df.index)
+perlen = tdis_df["perlen"].tolist()
+nstp = tdis_df["nstp"].tolist()
+tsmult = tdis_df["tsmult"].tolist()
+perioddata = list(zip(perlen, nstp, tsmult))
 
 # ------------------------------------------------------------------------------- #
 # --------------------------- GEOMETRY GENERATION ------------------------------- #
@@ -176,6 +187,43 @@ well_st_df = pd.read_excel(setup_file, sheet_name="wells_st") # Well locations a
 q0 = well_st_df["q"].sum() # Get the total steady state pumping rate for reference
 well_df = pd.read_excel(setup_file, sheet_name="wells") # Well locations and transient pumping rates
 
+c0 = 100 # Initial concentration for transport model
+
+# ------------------------------------------------------------------------------- #
+# ----------------------- RANDOM PARAMETER FIELDS ------------------------------- #
+# ------------------------------------------------------------------------------- #
+
+if heterogeneity:
+    # Generate random hydraulic conductivity fields for each layer
+    kh0 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                        geom_mean=kh[0], sill=0.3, nugget=0.0,
+                                        range_param=15000, drow=drow, dcol=dcol,
+                                        param_type="K", seed=0)
+
+    kh1 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                        geom_mean=kh[1], sill=0.3, nugget=0.0,
+                                        range_param=15000, drow=drow, dcol=dcol,
+                                        param_type="K", seed=1)
+
+    kh2 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                        geom_mean=kh[2], sill=0.3, nugget=0.0,
+                                        range_param=15000, drow=drow, dcol=dcol,
+                                        param_type="K", seed=2)
+
+    kh3 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                        geom_mean=kh[3], sill=0.3, nugget=0.0,
+                                        range_param=15000, drow=drow, dcol=dcol,
+                                        param_type="K", seed=3)
+
+    kh4 = modpar6.generate_random_field((nrow, ncol), "exponential",
+                                        geom_mean=kh[4], sill=0.3, nugget=0.0,
+                                        range_param=15000, drow=drow, dcol=dcol,
+                                        param_type="K", seed=4)
+
+    kh_array = modpar6.stack_fields_to_3D([kh0, kh1, kh2, kh3, kh4], nlay, nrow, ncol)
+    kv_array = kh_array  # Assume no anisotropy
+
+
 # ------------------------------------------------------------------------------- #
 # ----------------------- LAYER SUBDIVISION ------------------------------------- #
 # ------------------------------------------------------------------------------- #
@@ -204,16 +252,16 @@ if subdivide_layers:
     ss_array = modgeom6.subdivide_array(ss_array, nsub)
     sy_array = modgeom6.subdivide_array(sy_array, nsub)
 
+    # Recompute irch and recharge 2D arrays
+    irch = modgeom6.compute_irch(idomain)
+    R_array = modgeom6.compute_recharge(irch, recharge)
+
     # Compute storage coefficient, sto_cell_type, transmissivity, and diffusivity 3D arrays
     sy_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-1) # List of top most active cells
     storage_coeff = modgeom6.storage_coefficient(sy_cells, idomain, ss_array, sy_array, thickness_array)
     sto_cell_type = modgeom6.storage_cell_type(sy_cells, idomain)
     transmissivity = kh_array * thickness_array
     diffusivity = np.where(idomain==1, transmissivity / storage_coeff, np.nan)
-
-    # Recompute irch and recharge 2D arrays
-    irch = modgeom6.compute_irch(idomain)
-    R_array = modgeom6.compute_recharge(irch, recharge)
 
 # ------------------------------------------------------------------------------- #
 # -------------------------- RESPONSE TIME PARAMETERS --------------------------- #
@@ -305,13 +353,13 @@ if STEADY:
     ims = flopy.mf6.ModflowIms(sim, pname="ims",
                             print_option="SUMMARY",
                             complexity="COMPLEX",
-                            outer_dvclose=0.00001,
-                            outer_maximum=3000,
+                            outer_dvclose=0.000001,
+                            outer_maximum=10000,
                             under_relaxation="SIMPLE",
                             under_relaxation_gamma=0.1,
-                            inner_maximum=3000,
-                            inner_dvclose=0.00001,
-                            rcloserecord=0.0001,
+                            inner_maximum=10000,
+                            inner_dvclose=0.000001,
+                            rcloserecord=0.00001,
                             linear_acceleration="BICGSTAB",
                             scaling_method="NONE",
                             reordering_method="NONE",
@@ -350,13 +398,13 @@ if STEADY:
         head_filerecord = f"output/{model_name}.hds",
         budget_filerecord = f"output/{model_name}.cbb",
         budgetcsv_filerecord = f"output/{model_name}_budget.csv",
-        saverecord = [("HEAD", "ALL"), ("BUDGET", "LAST")],
+        saverecord = [("HEAD", "ALL"), ("BUDGET", "ALL")],
         printrecord = [("HEAD", "LAST"),("BUDGET", "LAST")], 
         filename = f"{model_name}.oc")
 
     # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
     # Drain package
-    drn_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-1)
+    drn_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-2)
     drn_spd = modbound6.create_drn_spd(
         drn_cells,
         ztop,
@@ -367,11 +415,12 @@ if STEADY:
         drainbed_thickness=1,
         elev_type="absolute",
         a=0,
-        conc=None)
+        conc=c0)
     drn = flopy.mf6.ModflowGwfdrn(gwf, 
                                 pname = "drn",
                                 save_flows = True,
                                 stress_period_data = drn_spd,
+                                auxiliary=["CONC"],
                                 filename = f"{model_name}.drn")
 
     # Recharge package
@@ -380,6 +429,8 @@ if STEADY:
                                 save_flows = True,
                                 irch=irch,
                                 recharge = R_array,
+                                auxiliary=["CONC"],
+                                aux = np.full((nrow, ncol), c0),
                                 filename = f"{model_name}.rcha")
 
     # Well package
@@ -401,32 +452,21 @@ if STEADY:
                                 filename = f"{model_name}.wel")
 
     # General Head Boundary package
-    zone_layers = np.arange(10, 15)      # layers 10, 11, 12, 13, 14 (pumped aquifer)
-    other_layers = np.setdiff1d(np.arange(nlay), zone_layers)
-
-    # --- GHB1: all layers except zone layers
-    ghb_spd1 = {0: [((ilay, irow, ncol-1),
-                    ztop[0, 0, ncol-1],
-                    kh[ilay] * thickness_array[ilay, irow, ncol-1] * drow,
-                    f"Layer{ilay}")
-                    for ilay in other_layers for irow in range(nrow)]}
-
-    ghb1 = flopy.mf6.ModflowGwfghb(
-        gwf, pname="ghb1", boundnames=True,
-        print_input=True, print_flows=True, save_flows=True,
-        filename=f"{model_name}_ghb1.ghb", stress_period_data=ghb_spd1)
-
-    # --- GHB2: only zone layers
-    ghb_spd2 = {0: [((ilay, irow, ncol-1),
-                    ztop[0, 0, ncol-1],
-                    kh[ilay] * thickness_array[ilay, irow, ncol-1] * drow,
-                    f"Layer{ilay}")
-                    for ilay in zone_layers for irow in range(nrow)]}
-
-    ghb2 = flopy.mf6.ModflowGwfghb(
-        gwf, pname="ghb2", boundnames=True,
-        print_input=True, print_flows=True, save_flows=True,
-        filename=f"{model_name}_ghb2.ghb", stress_period_data=ghb_spd2)
+    ghb_1 = ztop[0,0,ncol-1] # Head in the GHB
+    ghb_spd1 = {}
+    ghb_spd1[0] = [
+        ((ilay, irow, ncol-1), ghb_1, kh[ilay] * thickness_array[ilay, irow, ncol-1] * drow, c0, f"Layer{ilay}")
+        for ilay in range(nlay)
+        for irow in range(nrow)] #Conductance set to transmissivity of the cell
+    ghb = flopy.mf6.ModflowGwfghb(gwf,
+                                    pname="ghb",
+                                    print_input=True,
+                                    print_flows=True,
+                                    save_flows=True,
+                                    boundnames=True,
+                                    auxiliary=["CONC"],
+                                    filename = f"{model_name}.ghb",
+                                    stress_period_data=ghb_spd1)
     
     # ---------------------------------- OBSERVATIONS --------------------------------------- #
 
@@ -612,12 +652,6 @@ if TRANSIENT:
     # ----------------------------- UPDATE PACKAGES ----------------------------------- #
 
     # Update time discretization
-    tdis_df = pd.read_excel(setup_file, sheet_name="tdis")
-    nper = len(tdis_df.index)
-    perlen = tdis_df["perlen"].tolist()
-    nstp = tdis_df["nstp"].tolist()
-    tsmult = tdis_df["tsmult"].tolist()
-    perioddata = list(zip(perlen, nstp, tsmult))
     tdis = sim.tdis
     tdis.nper = nper
     tdis.perioddata = perioddata
@@ -656,6 +690,8 @@ if TRANSIENT:
                                 pname = "rch",
                                 save_flows = True,
                                 irch=irch,
+                                auxiliary=["CONC"],
+                                aux = np.full((nrow, ncol), c0),
                                 recharge = "TIMEARRAYSERIES recharge", 
                                 filename = f"{model_name_tr}.rcha")
 
@@ -1150,150 +1186,89 @@ if response_times:
     csv_path = os.path.join(output_folder, "tr_total_summary.csv")
     pd.DataFrame(summary_data).to_csv(csv_path, index=False)
 
-    #--------------------------------------- TRANSIENT ANIMATION ---------------------------------------------#
+# -------------------------------------------------------------------------------------------------------------------------- #
+# --------------------------------------- TRANSPORT MODEL REACTIVE TRANSPORT ----------------------------------------------- #
+# -------------------------------------------------------------------------------------------------------------------------- #
+if TRANSPORT:
 
-if animate:
-    
-    # print("Creating residual diffusion animation...")
-    # end = start + (step*n)
-    # vmax = None
-    # for t in range(start, end, step):
-    #     res_diff_array = modtransient6.plot_residual_diffusion(  gwf=gwf,
-    #                                             time=t,
-    #                                             perioddata=perioddata,
-    #                                             nrow=nrow//2,
-    #                                             transient_heads=transient_heads,
-    #                                             steady_state_heads=steady_state_heads,
-    #                                             title=f"Absolute residual difussion in hydraulic heads after {int((t - start)/360)} years",
-    #                                             label="Head difference (m)",
-    #                                             vmin=0,
-    #                                             vmax=vmax,
-    #                                             save=True,
-    #                                             ve=ve,
-    #                                             output_folder=f"{figure_folder}/Residual_diffusion", 
-    #                                             plot_name = f"Residual_diffusion_{t}.png",
-    #                                             boundary_keywords=["WEL"],
-    #                                             interfaces=interfaces)
+    model_name_mt = 'DEESACmt'
+    model_ws_mt = "mf/mt"
+    sim = flopy.mf6.MFSimulation(sim_name = model_name_mt, 
+                                sim_ws = model_ws_mt, 
+                                exe_name = "mf6")
+
+    # Update time discretization
+    tdis = flopy.mf6.ModflowTdis(sim, nper=nper, time_units="DAYS", perioddata=perioddata)
+
+    ims = flopy.mf6.ModflowIms(
+        sim,
+        print_option="SUMMARY",
+        complexity="complex",
+        linear_acceleration="bicgstab",
+        outer_dvclose=0.00001,
+        inner_dvclose=0.00001)
+
+    gwt = flopy.mf6.ModflowGwt(sim, modelname=model_name_mt, save_flows=True)
+    sim.register_ims_package(ims, [gwt.name])
+
+    dis = flopy.mf6.ModflowGwtdis(gwt, 
+                                nlay=nlay, nrow=nrow, ncol=ncol, 
+                                delr=dcol, delc=drow, 
+                                top=topo, botm=zbot, idomain=idomain,
+                                filename=f"{model_name_mt}.dis")
+
+    sconc = np.zeros((nlay, nrow, ncol), dtype=float)
+    sconc[:] = c0
+
+    ic = flopy.mf6.ModflowGwtic(gwt, strt=sconc)
+    lambda_c14 = np.log(2)/(5730*360)
+    mst = flopy.mf6.ModflowGwtmst(gwt, porosity=0.15, first_order_decay=True, decay=lambda_c14)
+    adv = flopy.mf6.ModflowGwtadv(gwt, scheme="TVD")
+    dsp = flopy.mf6.ModflowGwtdsp(gwt, alh=10, ath1=1, alv = 10)
+    sourcerecarray = [("RCH", "AUX", "CONC"), ("GHB", "AUX", "CONC")]
+    ssm = flopy.mf6.ModflowGwtssm(gwt, sources=sourcerecarray)
+
+    pd = [
+        ("GWFHEAD", f"../output/{model_name_tr}.hds"),
+        ("GWFBUDGET", f"../output/{model_name_tr}.cbb")]
+    fmi = flopy.mf6.ModflowGwtfmi(gwt, packagedata=pd, filename=f"{model_name_mt}.fmi")
+
+    oc = flopy.mf6.ModflowGwtoc(
+        gwt,
+        budget_filerecord=f"{model_name_mt}.cbc",
+        concentration_filerecord=f"{model_name_mt}.ucn",
+        saverecord=[("CONCENTRATION", "ALL"), ("BUDGET", "ALL")])
+
+    sim.write_simulation()
+    success, buff = sim.run_simulation(report=True, silent=True)
+    assert success, pformat(buff)
+    print("Transport simulation completed successfully.")
+
+    conc = gwt.output.concentration().get_alldata()
+    conc_folder = os.path.join(model_ws, "fig", "CONC")
+    os.makedirs(conc_folder, exist_ok=True)
+    print("Creating concentration cross section plots...")
+    for time_index, target_time in enumerate(times_list):
+        if time_index % 10 != 0:
+            continue  # skip this iteration
+        conc_plot = conc[time_index]
         
-    #     if vmax is None:
-    #         vmax = np.nanmax(res_diff_array)
-    
-    # modplot6.animate(f"{figure_folder}/Residual_diffusion", f"{figure_folder}/Residual_diffusion.gif", duration=250)
-
-    # print("Creating transient head animation...")
-    # end = start + (step*n)
-    # vmax = None
-    # for t in range(start, end, step):
-    #     tr_heads_array = modtransient6.plot_transient_heads(  gwf=gwf,
-    #                                             idomain=idomain,
-    #                                             time=t,
-    #                                             perioddata=perioddata,
-    #                                             nrow=nrow//2,
-    #                                             transient_heads=transient_heads,
-    #                                             title=f"Hydraulic heads after {int((t - start)/360)} years",
-    #                                             label="Head (m)",
-    #                                             vmin=0,
-    #                                             vmax=vmax,
-    #                                             save=True,
-    #                                             ve=ve,
-    #                                             output_folder=f"{figure_folder}/Transient_heads", 
-    #                                             plot_name = f"Transient_heads_{t}.png",
-    #                                             boundary_keywords=["WEL"],
-    #                                             interfaces=interfaces)
+        fig = plt.figure(figsize=(19, 5))
+        ax2 = fig.add_subplot(1, 1, 1)
         
-    #     if vmax is None:
-    #         vmax = np.nanmax(tr_heads_array)
-    
-    # modplot6.animate(f"{figure_folder}/Transient_heads", f"{figure_folder}/Transient_heads.gif", duration=250)
-
-    # print("Creating transient head animation with head time series...")
-    # end = start + (step*n)
-    # vmax = None
-    # for t in range(start, end, step):
-    #     tr_heads_array = modtransient6.plot_transient_heads_tr(gwf=gwf,
-    #                                         idomain=idomain,
-    #                                         time=t,
-    #                                         perioddata=perioddata,
-    #                                         nrow=nrow//2,
-    #                                         transient_heads=transient_heads,
-    #                                         times_list=times_list,
-    #                                         cell=(12,0,400),
-    #                                         start_time=start,
-    #                                         end_time=end,
-    #                                         title=f"Hydraulic heads {int((t - start)/360)} years after the start of pumping",
-    #                                         label="Head [m]",
-    #                                         vmin=-150,
-    #                                         vmax=vmax,
-    #                                         save=True,
-    #                                         ve=ve,
-    #                                         output_folder=f"{figure_folder}/Transient_heads_ts",
-    #                                         plot_name=f"Transient_heads_{t}.png",
-    #                                         boundary_keywords=["WEL"],
-    #                                         interfaces=interfaces)
+        mx2 = flopy.plot.PlotCrossSection(ax=ax2, model=gwf, line={"row": nrow // 2})
+        pa = mx2.plot_array(conc_plot, alpha=1, masked_values=[1.0e30], cmap="viridis", vmin=0, vmax=c0)
+        mx2.plot_grid(color="0.5", alpha=0.2)
         
-    #     if vmax is None:
-    #         vmax = np.nanmax(tr_heads_array)
-
-    # modplot6.animate(f"{figure_folder}/Transient_heads_ts", f"{figure_folder}/Transient_heads_ts.gif", duration=250)
-
-    print("Creating transient Residual diffusion animation with residual diffusion time series...")
-    end = start + (step*n)
-    vmax = None
-    for t in range(start, end, step):
-        res_diff_array = modtransient6.plot_residual_diffusion_tr(gwf=gwf,
-                                            time=t,
-                                            perioddata=perioddata,
-                                            nrow=nrow//2,
-                                            transient_heads=transient_heads,
-                                            steady_state_heads=steady_state_heads,
-                                            times_list=times_list,
-                                            cell=(12,0,400),
-                                            start_time=start,
-                                            end_time=end,
-                                            title=f"Hydraulic heads {int((t - start)/360)} years after the start of pumping",
-                                            label="Absolute residual diffusion [m]",
-                                            vmin=0,
-                                            vmax=vmax,
-                                            save=True,
-                                            ve=ve,
-                                            output_folder=f"{figure_folder}/Res_diff_ts",
-                                            plot_name=f"Res_diff_ts_{t}.png",
-                                            boundary_keywords=["WEL"],
-                                            interfaces=interfaces)
+        cb2 = plt.colorbar(pa, ax=ax2)
+        cb2.set_label("Concentration")
         
-        if vmax is None:
-            vmax = np.nanmax(res_diff_array)
-
-    modplot6.animate(f"{figure_folder}/Res_diff_ts", f"{figure_folder}/Res_diff_ts.gif", duration=250)
-
-    # print("Creating transient head animation with capture time series...")
-    # end = start + (step*n)
-    # vmax = None
-    # for t in range(start, end, step):
-    #     tr_heads_array = modtransient6.plot_transient_heads_capture(gwf=gwf,
-    #                                         idomain=idomain,
-    #                                         time=t,
-    #                                         perioddata=perioddata,
-    #                                         nrow=nrow//2,
-    #                                         transient_heads=transient_heads,
-    #                                         csv_path=budget_file_t,
-    #                                         start_time=start,
-    #                                         end_time=end,
-    #                                         title=f"Hydraulic heads {int((t - start)/360)} years after the start of pumping",
-    #                                         label="Head [m]",
-    #                                         vmin=-150,
-    #                                         vmax=vmax,
-    #                                         save=True,
-    #                                         ve=ve,
-    #                                         output_folder=f"{figure_folder}/Transient_heads_sto",
-    #                                         plot_name=f"Transient_heads_{t}.png",
-    #                                         boundary_keywords=["WEL"],
-    #                                         interfaces=interfaces)
+        ax2.set_title(f"Concentration Field at time {target_time//360} years")
+        ax2.set_aspect(ve, adjustable="box", anchor="C")
         
-    #     if vmax is None:
-    #         vmax = np.nanmax(tr_heads_array)
-
-    # modplot6.animate(f"{figure_folder}/Transient_heads_sto", f"{figure_folder}/Transient_heads_sto.gif", duration=250)
+        plt.tight_layout()
+        fig.savefig(f"{model_ws}/fig/CONC/cross_section_Conc{int(target_time)}.png", dpi=300)
+        plt.close(fig)
 
 end_time = time.time()
 print(f"Total execution time: {(end_time - start_time)/60:.2f} minutes")

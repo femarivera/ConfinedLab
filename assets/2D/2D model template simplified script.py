@@ -356,7 +356,7 @@ if STEADY:
 
     # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
     # Drain package
-    drn_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-1)
+    drn_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-2)
     drn_spd = modbound6.create_drn_spd(
         drn_cells,
         ztop,

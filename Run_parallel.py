@@ -12,12 +12,12 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))   # ConfinedLab
 SETUP_FILE = os.path.join(BASE_DIR, "setup.xlsx")
 
 SCRIPTS_TO_COPY = [
-    "Sustainable_yield.py",
+    #"Sustainable_yield.py",
     "Model.py",
     # "Parameter_analysis.py"
 ]
 
-SCRIPT_TO_RUN = "Sustainable_yield.py"  # The script to run in each case
+SCRIPT_TO_RUN = "Model.py"  # The script to run in each case
 
 PREFIX = "kv_" # Prefix for parameter value columns in parameter_analysis sheet
 

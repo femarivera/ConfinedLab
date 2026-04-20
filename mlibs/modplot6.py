@@ -111,7 +111,6 @@ def plot_map_view(gwf,
     hobj = flopy.utils.HeadFile(head_path)
     if transient:
         heads = hobj.get_alldata()
-        times_list = hobj.get_times()
         head = heads[time_step]
     else:
         head = hobj.get_data()
@@ -174,6 +173,158 @@ def plot_map_view(gwf,
     # Add colorbar
     cb = plt.colorbar(pa, shrink=0.5, ax=ax)
     cb.set_label("Head [m]", fontsize=fontsize)
+
+    # Adjust layout and show plot
+    plt.ioff()
+    if show:
+        plt.show()
+
+    # Save plot
+    if save:
+        # Create directory if it does not exist
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        fig.savefig(output_path, dpi=300)
+        plt.close(fig)
+
+def plot_map_view_array(gwf, 
+                  output_path, 
+                  boundary_keywords=None,
+                  array = None, 
+                  layer=0, 
+                  flow_dir=False,
+                  contours=False,
+                  show=False, 
+                  save=False,
+                  grid=True,
+                  figsize=(10, 10),
+                  fontsize=14,
+                  title="Model map view", 
+                  colorbar=True,
+                  label="Legend",
+                  log=False,
+                  colormap="viridis", 
+                  vmin=None,
+                  vmax=None):
+    """
+    Plots a map view for a MODFLOW 6 groundwater flow model.
+
+    Args:
+        gwf (flopy.mf6.ModflowGwf): Groundwater flow model object.
+        output_path (str): File path to save the plot.
+        boundary_keywords (list of str): Keywords for boundary condition columns to include.
+        array (numpy.ndarray): 3D array to plot (e.g., heads, concentrations).
+        layer (int): Model layer to plot.
+        flow_dir (bool): Whether to plot flow vectors.
+        contours (bool): Whether to plot contours.
+        show (bool): Whether to display the plot.
+        save (bool): Whether to save the plot to file.
+        figsize (tuple): Size of the figure.
+        fontsize (int): Font size for plot labels.
+        title (str): Title for the plot.
+        time_step (int): Time step index to plot for transient data.
+        colorbar (bool): Whether to include a colorbar.
+        label (str): Label for the colorbar.
+        log (bool): Whether to use logarithmic color scaling.
+        colormap (str): Matplotlib colormap name for plotting the array.
+        vmin (float): Minimum value for plotting.
+        vmax (float): Maximum value for plotting.
+
+    Outputs:
+        Displays the map view plot and/or saves it to a file.
+    """
+
+    # Input checks
+    if gwf is None:
+        raise ValueError("gwf (MODFLOW 6 model object) must be provided.")
+    if not isinstance(output_path, str) or not output_path:
+        raise ValueError("output_path must be a non-empty string.")
+    if boundary_keywords is not None and not isinstance(boundary_keywords, list):
+        raise ValueError("boundary_keywords must be a list of strings or None.")
+    if not isinstance(layer, int) or layer < 0:
+        raise ValueError("layer must be a non-negative integer.")
+    if not isinstance(flow_dir, bool):
+        raise ValueError("flow_dir must be a boolean.")
+    if not isinstance(contours, bool):
+        raise ValueError("contours must be a boolean.")
+    if not isinstance(show, bool):
+        raise ValueError("show must be a boolean.")
+    if not isinstance(save, bool):
+        raise ValueError("save must be a boolean.")
+    if not (isinstance(figsize, tuple) and len(figsize) == 2):
+        raise ValueError("figsize must be a tuple of length 2.")
+    if not isinstance(fontsize, (int, float)):
+        raise ValueError("fontsize must be a number.")
+    if title is not None and not isinstance(title, str):
+        raise ValueError("title must be a string or None.")    
+    
+    # Default color mapping based on boundary condition type
+    color_map = {
+        "RIV": "blue",
+        "WEL": "red",
+        "GHB": "black",
+        "DRN": "gray",
+        "CHD": "purple"
+    }
+
+    # Mask inactive cells
+    idomain = gwf.modelgrid.idomain
+    array = np.where(idomain == 0, np.nan, array)
+
+    # Initialize the figure and axes
+    fig, ax = plt.subplots(1, 1, figsize=figsize, constrained_layout=True)
+    ax.set_title(title, fontsize=fontsize)
+
+    if vmin is None and vmax is None:
+        vmin, vmax = np.nanmin(array), np.nanmax(array)
+    else:
+        vmin = vmin
+        vmax = vmax
+
+    # Create the map view object
+    modelmap = flopy.plot.PlotMapView(model=gwf, ax=ax, layer=layer)
+
+    if array is not None:
+        if array.shape != (gwf.modelgrid.nlay, gwf.modelgrid.nrow, gwf.modelgrid.ncol):
+            raise ValueError(f"array shape {array.shape} does not match model grid shape {(gwf.modelgrid.nlay, gwf.modelgrid.nrow, gwf.modelgrid.ncol)}.")
+        # Plot the array
+        if log:
+            norm = LogNorm(vmin=vmin, vmax=vmax)
+            pa = modelmap.plot_array(array, vmin=vmin, vmax=vmax, cmap=get_cmap(colormap), norm=norm)
+        else:    
+            pa = modelmap.plot_array(array, vmin=vmin, vmax=vmax, cmap=get_cmap(colormap))
+        # Add colorbar
+        if colorbar:
+            cb = plt.colorbar(pa, ax=ax)
+            cb.set_label(label, fontsize=fontsize)
+
+    # Enforce 1:1 aspect ratio for accurate spatial scaling
+    ax.set_aspect('equal', adjustable='box')
+
+    # Add contours
+    if contours:
+        contour_intervals = np.arange(vmin, vmax + 1, (vmax-vmin)/10)
+        contours = modelmap.contour_array(array, levels=contour_intervals, colors="black")
+        ax.clabel(contours, fmt="%2.1f")
+
+    # Plot the grid
+    if grid:
+        modelmap.plot_grid(lw=0.1, color="0.5")
+
+    # Dynamically plot boundary conditions based on keywords
+    if boundary_keywords:
+        for bc in boundary_keywords:
+            # Determine color based on the keyword
+            bc_color = None
+            for key in color_map:
+                if key in bc:  # Check if the keyword contains the key
+                    bc_color = color_map[key]
+                    break
+            # Plot the boundary condition with the appropriate color
+            if bc_color:
+                modelmap.plot_bc(bc, color=bc_color)
 
     # Adjust layout and show plot
     plt.ioff()
@@ -624,123 +775,6 @@ def plot_cross_section_col(gwf,
         fig.savefig(output_path, dpi=300)
         plt.close(fig)  
 
-def plot_bud_sum_steady(file_path, 
-                        output_path, 
-                        show=False, 
-                        save=False, 
-                        figsize=(19, 6), 
-                        fontsize=14):
-    """
-    Creates bar plots for inflow, outflow, and total flows based on a budget summary CSV file
-    output of a MODFLOW 6 steady-state simulation.
-
-    Args:
-        file_path (str): Path to the budget CSV file. The file should have one row,
-                        with columns ending in _IN, _OUT, and containing TOTAL_IN and TOTAL_OUT.
-        output_path (str): Path to save the output figure.
-        show (bool): Whether to display the plot.
-        save (bool): Whether to save the plot to a file.
-        figsize (tuple): Size of the figure.
-        fontsize (int): Font size for plot labels.
-
-    Outputs:
-        Displays and/or saves a single figure with three subplots showing inflow, outflow, and total flows.
-    """
-
-    # Input checks
-    if not isinstance(file_path, str) or not file_path:
-        raise ValueError("file_path must be a non-empty string.")
-    if not isinstance(output_path, str) or not output_path:
-        raise ValueError("output_path must be a non-empty string.")
-    if not isinstance(show, bool):
-        raise ValueError("show must be a boolean.")
-    if not isinstance(save, bool):
-        raise ValueError("save must be a boolean.")
-    if not (isinstance(figsize, tuple) and len(figsize) == 2):
-        raise ValueError("figsize must be a tuple of length 2.")
-    if not isinstance(fontsize, (int, float)):
-        raise ValueError("fontsize must be a number.")
-
-    # Load the CSV file
-    data = pd.read_csv(file_path)
-
-    # Simplify column names
-    def simplify_name(name):
-        """
-        Simplify the name by extracting content inside parentheses if present.
-        If no parentheses, replace underscores with spaces. If no underscores, fallback to original name.
-        """
-        if '(' in name and ')' in name:
-            simplified = name.split('(')[1].split(')')[0].strip()  # Extract text inside parentheses
-        elif '_' in name:
-            simplified = name.replace('_', ' ')  # Replace underscores with spaces
-        else:
-         simplified = name.strip()  # Fallback to original name
-        return simplified
-
-    # Identify columns
-    columns_in = [col for col in data.columns if col.endswith("_IN") and col != "TOTAL_IN"]
-    columns_out = [col for col in data.columns if col.endswith("_OUT") and col != "TOTAL_OUT"]
-    columns_total = ["TOTAL_IN", "TOTAL_OUT"]
-
-    # Prepare data for plots
-    data_in = data[columns_in].iloc[0]
-    data_out = data[columns_out].iloc[0]
-    data_total = data[columns_total].iloc[0]
-
-    # Simplify column names for plotting
-    columns_in_simplified = [simplify_name(col) for col in columns_in]
-    columns_out_simplified = [simplify_name(col) for col in columns_out]
-    columns_total_simplified = [simplify_name(col) for col in columns_total]
-
-    # Create a figure with subplots
-    fig, axs = plt.subplots(1, 3, figsize=figsize)
-
-    # Determine the common y-axis range based on the "Total Inflow and Outflow" plot
-    common_ylim = (0, max(max(data_in.values), max(data_out.values), max(data_total.values)) * 1.1)  # Add 10% padding
-
-    # Plot inflow components
-    axs[0].bar(columns_in_simplified, data_in.values, color="blue")
-    axs[0].set_title("Inflow Components", fontsize=fontsize)
-    axs[0].set_xlabel("Component")
-    axs[0].set_ylabel("m³/day")
-    axs[0].set_ylim(common_ylim) 
-    for i, val in enumerate(data_in.values):
-        axs[0].text(i, val, f"{val:.2f}", ha="center", va="bottom")
-
-    # Plot outflow components
-    axs[1].bar(columns_out_simplified, data_out.values, color="red")
-    axs[1].set_title("Outflow Components", fontsize=fontsize)
-    axs[1].set_xlabel("Component")
-    #axs[1].set_ylabel("m³/day")
-    axs[1].set_ylim(common_ylim) 
-    for i, val in enumerate(data_out.values):
-        axs[1].text(i, val, f"{val:.2f}", ha="center", va="bottom")
-
-    # Plot total inflow and outflow
-    axs[2].bar(columns_total_simplified, data_total.values, color="green")
-    axs[2].set_title("Total Inflow and Outflow", fontsize=fontsize)
-    axs[2].set_xlabel("Component")
-    #axs[2].set_ylabel("m³/day")
-    axs[2].set_ylim(common_ylim) 
-    for i, val in enumerate(data_total.values):
-        axs[2].text(i, val, f"{val:.2f}", ha="center", va="bottom")
-
-    # Adjust layout and show plot
-    plt.ioff()
-    if show:
-        plt.show()
-
-    # Save plot
-    if save:
-        # Create directory if it does not exist
-        output_dir = os.path.dirname(output_path)
-        if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-
-        fig.savefig(output_path, dpi=300)
-        plt.close(fig)
-
 def plot_cross_section_array(gwf,
                              row, 
                              output_path, 
@@ -818,8 +852,7 @@ def plot_cross_section_array(gwf,
         "WEL": "red",
         "GHB": "black",
         "DRN": "gray",
-        "CHD": "purple"
-    }
+        "CHD": "purple"}
 
     # Validate row index
     nrow, ncol = gwf.modelgrid.nrow, gwf.modelgrid.ncol
@@ -1074,3 +1107,120 @@ def animate(folder_path, gif_output_path, duration=250):
 
     print(f"Animation saved at {gif_output_path}")
     print("All cross-section plots and animation generated and saved.")
+
+def plot_bud_sum_steady(file_path, 
+                        output_path, 
+                        show=False, 
+                        save=False, 
+                        figsize=(19, 6), 
+                        fontsize=14):
+    """
+    Creates bar plots for inflow, outflow, and total flows based on a budget summary CSV file
+    output of a MODFLOW 6 steady-state simulation.
+
+    Args:
+        file_path (str): Path to the budget CSV file. The file should have one row,
+                        with columns ending in _IN, _OUT, and containing TOTAL_IN and TOTAL_OUT.
+        output_path (str): Path to save the output figure.
+        show (bool): Whether to display the plot.
+        save (bool): Whether to save the plot to a file.
+        figsize (tuple): Size of the figure.
+        fontsize (int): Font size for plot labels.
+
+    Outputs:
+        Displays and/or saves a single figure with three subplots showing inflow, outflow, and total flows.
+    """
+
+    # Input checks
+    if not isinstance(file_path, str) or not file_path:
+        raise ValueError("file_path must be a non-empty string.")
+    if not isinstance(output_path, str) or not output_path:
+        raise ValueError("output_path must be a non-empty string.")
+    if not isinstance(show, bool):
+        raise ValueError("show must be a boolean.")
+    if not isinstance(save, bool):
+        raise ValueError("save must be a boolean.")
+    if not (isinstance(figsize, tuple) and len(figsize) == 2):
+        raise ValueError("figsize must be a tuple of length 2.")
+    if not isinstance(fontsize, (int, float)):
+        raise ValueError("fontsize must be a number.")
+
+    # Load the CSV file
+    data = pd.read_csv(file_path)
+
+    # Simplify column names
+    def simplify_name(name):
+        """
+        Simplify the name by extracting content inside parentheses if present.
+        If no parentheses, replace underscores with spaces. If no underscores, fallback to original name.
+        """
+        if '(' in name and ')' in name:
+            simplified = name.split('(')[1].split(')')[0].strip()  # Extract text inside parentheses
+        elif '_' in name:
+            simplified = name.replace('_', ' ')  # Replace underscores with spaces
+        else:
+         simplified = name.strip()  # Fallback to original name
+        return simplified
+
+    # Identify columns
+    columns_in = [col for col in data.columns if col.endswith("_IN") and col != "TOTAL_IN"]
+    columns_out = [col for col in data.columns if col.endswith("_OUT") and col != "TOTAL_OUT"]
+    columns_total = ["TOTAL_IN", "TOTAL_OUT"]
+
+    # Prepare data for plots
+    data_in = data[columns_in].iloc[0]
+    data_out = data[columns_out].iloc[0]
+    data_total = data[columns_total].iloc[0]
+
+    # Simplify column names for plotting
+    columns_in_simplified = [simplify_name(col) for col in columns_in]
+    columns_out_simplified = [simplify_name(col) for col in columns_out]
+    columns_total_simplified = [simplify_name(col) for col in columns_total]
+
+    # Create a figure with subplots
+    fig, axs = plt.subplots(1, 3, figsize=figsize)
+
+    # Determine the common y-axis range based on the "Total Inflow and Outflow" plot
+    common_ylim = (0, max(max(data_in.values), max(data_out.values), max(data_total.values)) * 1.1)  # Add 10% padding
+
+    # Plot inflow components
+    axs[0].bar(columns_in_simplified, data_in.values, color="blue")
+    axs[0].set_title("Inflow Components", fontsize=fontsize)
+    axs[0].set_xlabel("Component")
+    axs[0].set_ylabel("m³/day")
+    axs[0].set_ylim(common_ylim) 
+    for i, val in enumerate(data_in.values):
+        axs[0].text(i, val, f"{val:.2f}", ha="center", va="bottom")
+
+    # Plot outflow components
+    axs[1].bar(columns_out_simplified, data_out.values, color="red")
+    axs[1].set_title("Outflow Components", fontsize=fontsize)
+    axs[1].set_xlabel("Component")
+    #axs[1].set_ylabel("m³/day")
+    axs[1].set_ylim(common_ylim) 
+    for i, val in enumerate(data_out.values):
+        axs[1].text(i, val, f"{val:.2f}", ha="center", va="bottom")
+
+    # Plot total inflow and outflow
+    axs[2].bar(columns_total_simplified, data_total.values, color="green")
+    axs[2].set_title("Total Inflow and Outflow", fontsize=fontsize)
+    axs[2].set_xlabel("Component")
+    #axs[2].set_ylabel("m³/day")
+    axs[2].set_ylim(common_ylim) 
+    for i, val in enumerate(data_total.values):
+        axs[2].text(i, val, f"{val:.2f}", ha="center", va="bottom")
+
+    # Adjust layout and show plot
+    plt.ioff()
+    if show:
+        plt.show()
+
+    # Save plot
+    if save:
+        # Create directory if it does not exist
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+
+        fig.savefig(output_path, dpi=300)
+        plt.close(fig)

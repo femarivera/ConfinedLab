@@ -405,7 +405,7 @@ def iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, iteration
     (on sheet named q_values_tr). For each pumping rate, the model is run in a unique workspace and the 
     relevant output files are copied to a summary directory.
 
-    This is useful for small models that do not have large inout or output files. For larger models, use
+    This is useful for small models that do not have large input or output files. For larger models, use
     the function iterate_pumping_rate_transient_eff.
 
     Args:

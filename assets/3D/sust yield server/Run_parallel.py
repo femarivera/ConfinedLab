@@ -68,11 +68,43 @@ def prepare_case(parv_col):
             df_parameters.at[idx, "value"] = new_value
 
     # ---------------------------------------------------------
+    # Update pumping rates for initial iteration
+    # ---------------------------------------------------------
+    #q_values_init contains the pumping rates for the initial model run that is performed in the 
+    #sustainable_yield.py script. This run is meant to create the model files that are needed
+    #for subsequent iterations when using the . These pumping rates are adapted for the different parameter sets. 
+
+    df_qinit = pd.read_excel(SETUP_FILE, sheet_name="q_values_init")
+
+    # Get q_init for this case (parv_col == folder name)
+    q_init_row = df_qinit.loc[df_qinit["par_name"] == parv_col]
+
+    if q_init_row.empty:
+        raise ValueError(f"No q_init found for {parv_col}")
+
+    q_init = q_init_row["q_init"].values[0]
+
+    # ---------------------------------------------------------
+    # 1. Update wells_st: all q = q_init
+    # ---------------------------------------------------------
+    df_wells_st = pd.read_excel(SETUP_FILE, sheet_name="wells_st")
+    df_wells_st["q"] = q_init
+
+    # ---------------------------------------------------------
+    # 2. Update wells: q = q_init only where time != 0
+    # ---------------------------------------------------------
+    df_wells = pd.read_excel(SETUP_FILE, sheet_name="wells")
+
+    mask = df_wells["time"] != 0
+    df_wells.loc[mask, "q"] = q_init
+
+    # ---------------------------------------------------------
     # Write the updated "parameters" sheet back to the file
     # ---------------------------------------------------------
     with pd.ExcelWriter(setup_out, mode="a", if_sheet_exists="replace") as writer:
         df_parameters.to_excel(writer, sheet_name="parameters", index=False)
-
+        df_wells_st.to_excel(writer, sheet_name="wells_st", index=False)
+        df_wells.to_excel(writer, sheet_name="wells", index=False)
     return case_dir
 
 

@@ -204,16 +204,16 @@ if subdivide_layers:
     ss_array = modgeom6.subdivide_array(ss_array, nsub)
     sy_array = modgeom6.subdivide_array(sy_array, nsub)
 
+    # Recompute irch and recharge 2D arrays
+    irch = modgeom6.compute_irch(idomain)
+    R_array = modgeom6.compute_recharge(irch, recharge)
+
     # Compute storage coefficient, sto_cell_type, transmissivity, and diffusivity 3D arrays
     sy_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-1) # List of top most active cells
     storage_coeff = modgeom6.storage_coefficient(sy_cells, idomain, ss_array, sy_array, thickness_array)
     sto_cell_type = modgeom6.storage_cell_type(sy_cells, idomain)
     transmissivity = kh_array * thickness_array
     diffusivity = np.where(idomain==1, transmissivity / storage_coeff, np.nan)
-
-    # Recompute irch and recharge 2D arrays
-    irch = modgeom6.compute_irch(idomain)
-    R_array = modgeom6.compute_recharge(irch, recharge)
 
 # ------------------------------------------------------------------------------- #
 # -------------------------- RESPONSE TIME PARAMETERS --------------------------- #
@@ -306,10 +306,10 @@ if STEADY:
                             print_option="SUMMARY",
                             complexity="COMPLEX",
                             outer_dvclose=0.00001,
-                            outer_maximum=3000,
+                            outer_maximum=500,
                             under_relaxation="SIMPLE",
                             under_relaxation_gamma=0.1,
-                            inner_maximum=3000,
+                            inner_maximum=500,
                             inner_dvclose=0.00001,
                             rcloserecord=0.0001,
                             linear_acceleration="BICGSTAB",
@@ -355,10 +355,10 @@ if STEADY:
         filename = f"{model_name}.oc")
 
     # --------------------------- BOUNDARY CONDITIONS ------------------------------- #
-    # Drain package
-    drn_cells = modbound6.extract_active_cells_range(irch, idomain, 0, nrow-1, 0, ncol-2)
-    drn_spd = modbound6.create_drn_spd(
-        drn_cells,
+    # Drain package zone 1
+    drn_cells_01 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones=[1])
+    drn_spd_01 = modbound6.create_drn_spd(
+        drn_cells_01,
         ztop,
         thickness_array,
         drn_cond,
@@ -368,11 +368,83 @@ if STEADY:
         elev_type="absolute",
         a=0,
         conc=None)
-    drn = flopy.mf6.ModflowGwfdrn(gwf, 
-                                pname = "drn",
+    drn_01 = flopy.mf6.ModflowGwfdrn(gwf, 
+                                pname = "drn1",
                                 save_flows = True,
-                                stress_period_data = drn_spd,
-                                filename = f"{model_name}.drn")
+                                stress_period_data = drn_spd_01,
+                                filename = f"{model_name}_drn_01.drn")
+    # Drain package zone 2
+    drn_cells_02 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones=[2])
+    drn_spd_02 = modbound6.create_drn_spd(
+        drn_cells_02,
+        ztop,
+        thickness_array,
+        drn_cond,
+        drain_length=drow,
+        drain_width=1,
+        drainbed_thickness=1,
+        elev_type="absolute",
+        a=0,
+        conc=None)
+    drn_02 = flopy.mf6.ModflowGwfdrn(gwf, 
+                                pname = "drn2",
+                                save_flows = True,
+                                stress_period_data = drn_spd_02,
+                                filename = f"{model_name}_drn_02.drn")
+    # Drain package zone 3
+    drn_cells_03 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones=[3])
+    drn_spd_03 = modbound6.create_drn_spd(
+        drn_cells_03,
+        ztop,
+        thickness_array,
+        drn_cond,
+        drain_length=drow,
+        drain_width=1,
+        drainbed_thickness=1,
+        elev_type="absolute",
+        a=0,
+        conc=None)
+    drn_03 = flopy.mf6.ModflowGwfdrn(gwf, 
+                                pname = "drn3",
+                                save_flows = True,
+                                stress_period_data = drn_spd_03,
+                                filename = f"{model_name}_drn_03.drn")
+    # Drain package zone 4
+    drn_cells_04 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones=[4])
+    drn_spd_04 = modbound6.create_drn_spd(
+        drn_cells_04,
+        ztop,
+        thickness_array,
+        drn_cond,
+        drain_length=drow,
+        drain_width=1,
+        drainbed_thickness=1,
+        elev_type="absolute",
+        a=0,
+        conc=None)
+    drn_04 = flopy.mf6.ModflowGwfdrn(gwf, 
+                                pname = "drn4",
+                                save_flows = True,
+                                stress_period_data = drn_spd_04,
+                                filename = f"{model_name}_drn_04.drn")
+    # Drain package zone 5
+    drn_cells_05 = modbound6.extract_active_cells_zone(irch, idomain, zone_array, 0, nrow-1, 0, ncol-2, zones=[5])
+    drn_spd_05 = modbound6.create_drn_spd(
+        drn_cells_05,
+        ztop,
+        thickness_array,
+        drn_cond,
+        drain_length=drow,
+        drain_width=1,
+        drainbed_thickness=1,
+        elev_type="absolute",
+        a=0,
+        conc=None)
+    drn_05 = flopy.mf6.ModflowGwfdrn(gwf, 
+                                pname = "drn5",
+                                save_flows = True,
+                                stress_period_data = drn_spd_05,
+                                filename = f"{model_name}_drn_05.drn")
 
     # Recharge package
     rch = flopy.mf6.ModflowGwfrcha(gwf, 

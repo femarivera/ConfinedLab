@@ -62,7 +62,7 @@ constraints = [
     { 
     'label': "Spring discharge all zones", 
     'id': "drn_all", 
-    'constrain': "DRN(DRN)",
+    'constrain': "DRN(DRN1)",
     'flow': "NET", 
     'zone': "ALL", 
     'threshold_type': "RELATIVE", 
@@ -86,8 +86,8 @@ constraints = [
     'constrain': "GHB(GHB2)",
     'flow': "NET", 
     'zone': "ALL", 
-    'threshold_type': "ABSOLUTE", 
-    'threshold': 0,
+    'threshold_type': "RELATIVE", 
+    'threshold': 0.9,
     'reference': None, 
     'neighbour_zones': None, 
     'color' : "red" 

@@ -376,7 +376,7 @@ def idomain_from_thickness(thickness_array, epsilon):
         raise ValueError("epsilon must be a non-negative number.")
 
     # Set idomain to 1 (active) where thickness > epsilon, else 0 (inactive)
-    idomain = np.where(thickness_array >= epsilon, 1, 0)
+    idomain = np.where(thickness_array > epsilon, 1, 0)
     
     return idomain
 

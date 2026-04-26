@@ -19,7 +19,7 @@ ConfinedLab/
 ├── templates/
 │   ├── 2D/          ← MODFLOW 6 model file templates for 2D experiments
 │   └── 3D/          ← MODFLOW 6 model file templates for 3D experiments
-├── docs/            ← documentation, manuals, and guides for the model files
+├── docs/            ← documentation for the model files
 ├── gis/             ← GIS files (shapefiles, rasters, QGIS projects)
 ├── assets/          ← logo and figure files used in the README
 ├── mf/              ← simulation outputs

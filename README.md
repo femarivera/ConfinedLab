@@ -2,119 +2,75 @@
   <img src="assets/logo_confinedlab.png" height="100">
 </p>
 
-**ConfinedLab** is a modular Python toolkit for generating, simulating, and analyzing synthetic multilayer groundwater flow systems using MODFLOW 6. 
-It is designed for research, teaching, and rapid prototyping of conceptual and numerical hydrogeological models of confined aquifer systems.
+# ConfinedLab
 
-As part of the [PEPR One Water DEESAC project](https://www.onewater.fr/fr/actualite/actualite/lancement-du-projet-deesac-durabilite-exploitabilite-des-eaux-souterraines-des "Go to onewater.fr"), its primary goal is to investigate the transient response of multilayer aquifer systems to external 
-climatic and anthropogenic forcings by using numerical flow models, with a focus on confined aquifers. Furthermore, it aims to assess the implications 
-of response times into past and future behaviour of the system to inform sustainability assessments.
+Model files for the research work entitled *"Revisiting hydraulic response times in regional groundwater systems: the role of system connectivity and stress magnitude"*
+
+As part of the [PEPR One Water DEESAC project](https://www.onewater.fr/fr/actualite/actualite/lancement-du-projet-deesac-durabilite-exploitabilite-des-eaux-souterraines-des "Go to onewater.fr"), its primary goal is to investigate the transient response of multilayer aquifer systems to external climatic and anthropogenic forcings using synthetic numerical models, with a focus on confined aquifers within regional multilayer groundwater systems. We aim to assess the implications of response times on past and future system behaviour to inform sustainability assessments.
+
+> 🛠️ This project uses [ConfinedLab-mlibs](https://github.com/femarivera/ConfinedLab-mlibs) as its utility library.
 
 ---
 
-## Features
+## Repository structure
 
-- **Synthetic Geometry Generation:**  
-  Easily create multilayer geometries of synthetic stratigraphic configurations of a sedimentary multilayer system.
-
-- **Flexible Model Setup:**  
-  Quickly define model grids, hydraulic properties, boundary conditions, and recharge scenarios.
-
-- **Sustainable Yield estimations:**  
-  Maximize abstractions in a given pumping scenario subject to a series of predefined constrains.
-
-- **Visualization and Analysis:**  
-  Built-in plotting and post-processing tools for heads, flows, budgets, and more.
-
-- **Analyse parameter influence on results:**  
-  Investigate the effect of a model parameter on the sustainable yield estimations.
-
-
-## Example: Creating a Synthetic Model Geometry
-
-```python
-from mlibs import modgeom6
-
-# Define synthetic geometry generation parameters
-nlay, nrow, ncol = 5, 1, 600
-epsilon = 0 # Minimum allowed cell thickness in meters
-outcrop_z = np.array([100, 150, 200, 250, 350]) # Elevation (Just used when SLOPE is set to False)
-outcrop_zmax = np.array([200, 300, 400, 500, 500]) # Elevation (Just used when SLOPE are set to True)
-outcrop_zmin = np.array([0, 200, 300, 400, 500]) # Elevation (Just used when SLOPE are set to True)
-base_thicknesses = np.array([300, 150, 200, 150, 200]) # Layer thickness in meters
-outcrop_cells = np.array([300, 250, 150, 100, 0]) 
-transition = 60 # Number of transitions cells
-
-# Create idomain and geometry arrays
-idomain = modgeom6.compute_idomain(nlay, nrow, ncol, outcrop_cells)
-ztop = modgeom6.compute_top(idomain, outcrop_z, transition=True, slope=True,
-                            transition_cells=transition, transition_type="contain", 
-                            outcrop_zmin=outcrop_zmin, outcrop_zmax=outcrop_zmax)
-thickness_array = modgeom6.compute_thickness(idomain, base_thicknesses, 
-                                             transition=True, transition_type="extend", 
-                                             transition_cells=transition)
-zbot = modgeom6.compute_bottom(ztop, thickness_array)
-idomain = modgeom6.idomain_from_thickness(thickness_array, epsilon)
-
-# --- flopy simulation building section --- #
-
-modplot6.plot_cross_section_array(gwf, 
-                      zone_array, 
-                      nrow//2, 
-                      figsize=(19, 5),
-                      fontsize=14,
-                      label="Model layes") 
 ```
-![Example geometry output](assets/example_output_geometry.png)
-
-
-```python
-from mlibs import modgeom6, modplot6
-
-# Define synthetic geometry generation parameters
-nlay, nrow, ncol = 5, 1, 600
-epsilon = 0 # Minimum allowed cell thickness in meters
-outcrop_z = np.array([100, 150, 200, 250, 350]) # Elevation (Just used when SLOPE is set to False)
-outcrop_zmax = np.array([200, 300, 400, 500, 500]) # Elevation (Just used when SLOPE are set to True)
-outcrop_zmin = np.array([0, 200, 300, 400, 500]) # Elevation (Just used when SLOPE are set to True)
-base_thicknesses = np.array([300, 150, 200, 150, 200]) # Layer thickness in meters
-outcrop_cells = np.array([200, 150, 100, 50, 0]) 
-transition = 50 # Number of transitions cells
-
-# Create idomain and geometry arrays
-idomain = modgeom6.compute_idomain(nlay, nrow, ncol, outcrop_cells)
-ztop = modgeom6.compute_top(idomain, outcrop_z, transition=True, slope=True,
-                            transition_cells=transition, transition_type="contain", 
-                            outcrop_zmin=outcrop_zmin, outcrop_zmax=outcrop_zmax)
-thickness_array = modgeom6.compute_thickness(idomain, base_thicknesses, 
-                                             transition=True, transition_type="contain", 
-                                             transition_cells=transition)
-zbot = modgeom6.compute_bottom(ztop, thickness_array)
-idomain = modgeom6.idomain_from_thickness(thickness_array, epsilon)
-
-# --- flopy simulation building section --- #
-
-modplot6.plot_cross_section_array(gwf, 
-                      zone_array, 
-                      nrow//2, 
-                      figsize=(19, 5),
-                      fontsize=14,
-                      label="Model layes") 
+ConfinedLab/
+├── templates/
+│   ├── 2D/          ← MODFLOW 6 model file templates for 2D experiments
+│   └── 3D/          ← MODFLOW 6 model file templates for 3D experiments
+├── docs/            ← documentation, manuals, and guides for the model files
+├── gis/             ← GIS files (shapefiles, rasters, QGIS projects)
+├── assets/          ← logo and figure files used in the README
+├── mf/              ← simulation outputs
+├── gwmodelling.yaml           ← full conda environment specification
+├── gwmodelling-portable.yaml  ← portable conda environment specification
+├── pyproject.toml
+├── LICENSE
+└── README.md
 ```
-![Example geometry output](assets/example_output_geometry_2.png)
 
+---
+
+## Installation
+
+### 1. Create and activate the conda environment
+
+```bash
+conda env create -f gwmodelling.yaml
+conda activate gwmodelling
+```
+
+This includes necessary dependencies and software, such as MODFLOW 6.
+
+### 2. Clone the repository and install
+
+```bash
+git clone https://github.com/femarivera/ConfinedLab.git
+cd ConfinedLab
+pip install -e .
+```
+
+This will automatically install all Python dependencies, including [ConfinedLab-mlibs](https://github.com/femarivera/ConfinedLab-mlibs).
+
+---
+
+## License
+
+This project is licensed under the BSD 3-Clause License — see the [LICENSE](LICENSE) file for details.
+
+---
 
 ## Contact
 
-For questions, suggestions, or contributions, please contact:  
-Carlos Felipe Marin Rivera  
-Bordeaux INP, UMR 5805 Lab EPOC, Université de Bordeaux
-cmarinriver@bordeaux-inp.fr  
+For questions, suggestions, or contributions, please contact:
+
+**Carlos Felipe Marin Rivera**  
+Bordeaux INP, UMR 5805 Lab EPOC, Université de Bordeaux  
+cmarinriver@bordeaux-inp.fr
 
 <p float="left">
   <img src="assets/logo_ensegid.jpg" height="50" style="margin-right:10px;" />
   <img src="assets/logo_epoc.png" height="50" style="margin-right:10px;" />
   <img src="assets/logo_ubordeaux.png" height="50" />
 </p>
-
-
----

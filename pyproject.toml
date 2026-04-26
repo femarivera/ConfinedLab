@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ConfinedLab"
+version = "0.1.0"
+description = "Synthetic Modelling framework for confined aquifers within multilayer systems"
+authors = [
+  { name = "MARIN RIVERA Carlos Felipe" }
+]
+license = {text = "BSD-3-Clause"}
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.12",
+    "matplotlib>=3.9",
+    "flopy>=3.8",
+    "pandas>=2.0",
+    "geopandas>=1.0",
+    "imageio>=2.36",
+    "scikit-image>=0.24",
+    "scikit-learn>=1.6",
+    "openpyxl>=3.1",
+    "shapely",
+    "mlibs @ git+https://github.com/femarivera/ConfinedLab-mlibs.git",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]

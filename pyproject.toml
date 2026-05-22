@@ -23,7 +23,7 @@ dependencies = [
     "scikit-learn>=1.6",
     "openpyxl>=3.1",
     "shapely",
-    "mlibs @ git+https://github.com/femarivera/ConfinedLab-mlibs.git",
+    "mlibs @ git+https://github.com/femarivera/ConfinedLab-mlibs.git@v0.1.0",
 ]
 
 [tool.setuptools.packages.find]

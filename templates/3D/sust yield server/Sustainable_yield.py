@@ -22,7 +22,11 @@ EFFICIENCY = True  # Set to True to run the efficiency-based iteration process
 
 ESTIMATE = True  # Set to True to run the sustainable yield estimation
 
-planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 30000, 40000, 50000] # In years
+planning_horizons = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 
+                     20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 85, 100, 
+                     125, 150, 175, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 
+                     2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 15000, 
+                     20000, 25000, 30000, 35000, 40000, 45000, 50000] # In years
 pump_start = 3600000 # In model totim units (days)
 
 # --------------------------------------------------------------------------------------- #
@@ -60,16 +64,67 @@ input_folder = summary_dir # Takes as input the path to the summary of the yield
 # Define start time of pumping, planning horizons and constraints
 constraints = [
     { 
-    'label': "Spring discharge all zones", 
-    'id': "drn_all", 
+    'label': "Surface water discharge Zone 1", 
+    'id': "drn_z1", 
     'constrain': "DRN(DRN1)",
     'flow': "NET", 
     'zone': "ALL", 
     'threshold_type': "RELATIVE", 
-    'threshold': 0.9,
+    'threshold': 0.9999,
     'reference': None, 
     'neighbour_zones': None, 
     'color' : "Purple" 
+    },
+
+    { 
+    'label': "Surface water discharge Zone 2", 
+    'id': "drn_z2", 
+    'constrain': "DRN(DRN2)",
+    'flow': "NET", 
+    'zone': "ALL", 
+    'threshold_type': "RELATIVE", 
+    'threshold': 0.9999,
+    'reference': None, 
+    'neighbour_zones': None, 
+    'color' : "Blue" 
+    },
+    { 
+    'label': "Surface water discharge Zone 3", 
+    'id': "drn_z3", 
+    'constrain': "DRN(DRN3)",
+    'flow': "NET", 
+    'zone': "ALL", 
+    'threshold_type': "RELATIVE", 
+    'threshold': 0.9999,
+    'reference': None, 
+    'neighbour_zones': None, 
+    'color' : "Purple" 
+    },
+
+    { 
+    'label': "Surface water discharge Zone 4", 
+    'id': "drn_z4", 
+    'constrain': "DRN(DRN4)",
+    'flow': "NET", 
+    'zone': "ALL", 
+    'threshold_type': "RELATIVE", 
+    'threshold': 0.9999,
+    'reference': None, 
+    'neighbour_zones': None, 
+    'color' : "Blue" 
+    },
+
+    { 
+    'label': "Surface water discharge Zone 5", 
+    'id': "drn_z5", 
+    'constrain': "DRN(DRN5)",
+    'flow': "NET", 
+    'zone': "ALL", 
+    'threshold_type': "RELATIVE", 
+    'threshold': 0.9999,
+    'reference': None, 
+    'neighbour_zones': None, 
+    'color' : "Blue" 
     },
 
     # { 'label': "River discharge zone 1", 'id': "riv_1", 'constrain': "RIV",
@@ -87,7 +142,7 @@ constraints = [
     'flow': "NET", 
     'zone': "ALL", 
     'threshold_type': "RELATIVE", 
-    'threshold': 0.9,
+    'threshold': 0.9999,
     'reference': None, 
     'neighbour_zones': None, 
     'color' : "red" 
@@ -135,8 +190,10 @@ if ESTIMATE:
     planning_horizons_totim = [val * 360 for val in planning_horizons]
     # Loop over planning horizons and estimate sustainable yield 
     qs_values = []
+    defining_list = []
+
     for tp in planning_horizons_totim:
-        qs, df = modpump6.estimate_sustainable_yield(
+        qs, df, defining_constraints = modpump6.estimate_sustainable_yield(
             input_folder,
             output_folder,
             plot_folder,
@@ -145,61 +202,65 @@ if ESTIMATE:
             planning_horizon=tp,
             constraints=constraints,
             model_name=model_name,
-            csv_filename= f"Q_vs_flow_{int(tp/360)}.csv",
+            csv_filename=f"Q_vs_flow_{int(tp/360)}.csv",
             plot_filename=f"Q_vs_flow_{int(tp/360)}.png",
             plot_units="years",
-            conversion_factor=360)
+            conversion_factor=360
+        )
+
         qs_values.append(qs)
-        print(f"Sustainable yield: {qs}")
+        defining_constraint = defining_constraints[0] if defining_constraints else None
+        defining_list.append(defining_constraint)
+        print(f"Sustainable yield: {qs} | Constraint: {defining_constraint}")
         print(df.head())
 
     # Save summary of sustainable yield values vs planning horizon
-    qs_df = pd.DataFrame({"Planning_Horizon": planning_horizons, "Sustainable_Yield": qs_values})
+    qs_df = pd.DataFrame({"Planning_Horizon": planning_horizons, "Sustainable_Yield": qs_values, "Defining_Constraint": defining_list})
     qs_df.to_csv(os.path.join(output_folder, "sustainable_yield_summary.csv"), index=False)
 
     # Plot sustainable yield vs planning horizon
-    def plot_df(
-        qs,
-        title="Sustainable Yield Plot",
-        xlabel="Pumping Rate [m³/day]",
-        ylabel="Flow Rate [m³/day]",
-        figsize=(8,6),
-        save_path=None):
+    def plot_df(qs_df, defining_list,
+                        title="Sustainable Yield Plot",
+                        xlabel="Planning Horizon [years]",
+                        ylabel="Sustainable yield [m³/day]",
+                        figsize=(8,6),
+                        save_path=None):
+        
+        unique_constraints = sorted(set(defining_list))
+        colors = plt.cm.tab10(np.linspace(0, 1, len(unique_constraints)))
 
-        """
-        Plot a 2-column DataFrame: first column = x, second column = y.
-        """
-        # Extract columns
-        x = qs.iloc[:, 0]
-        y = qs.iloc[:, 1]
+        color_map = dict(zip(unique_constraints, colors))
+        point_colors = [color_map[c] for c in defining_list]
 
-        # Create figure
+        x = qs_df.iloc[:, 0]
+        y = qs_df.iloc[:, 1]
+
         fig, ax = plt.subplots(figsize=figsize)
 
-        # Plot with scientific styling
-        ax.plot(x, y, marker='o', linestyle='-', color='navy')
+        ax.scatter(x, y, c=point_colors, s=60, edgecolor="black")
 
-        # Titles and labels
+        # optional: connect trend line
+        ax.plot(x, y, linestyle='-', alpha=0.4, color='black')
+
+        # Legend with unique constraints
+        handles = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color_map[c], markersize=10, label=c) for c in unique_constraints]
+        ax.legend(handles=handles, title="Defining constraint", loc="best")
+
         ax.set_title(title, fontsize=14, fontweight="bold")
-        ax.set_xlabel(xlabel, fontsize=12)
-        ax.set_ylabel(ylabel, fontsize=12)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
 
-        # Grid and legend
-        ax.grid(True, which="both", linestyle="--", linewidth=0.7, alpha=0.7)
+        ax.grid(True, linestyle="--", alpha=0.6)
 
-        # Scientific notation for axes if values are large/small
-        #ax.ticklabel_format(style="sci", axis="both", scilimits=(0,0))
-
-        # Tight layout
         plt.tight_layout()
 
-        # Save or show
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches="tight")
         else:
             plt.show()
     plot_df(
         qs_df,
+        defining_list,
         title="Sustainable yield vs Planning horizon",
         xlabel="Planning Horizon [years]",
         ylabel="Sustainable yield [m³/day]",

@@ -1371,9 +1371,18 @@ def estimate_sustainable_yield(
             thresholds[cid] = float(ref) * float(c["threshold"])
 
         crossings[cid] = find_threshold_crossing(df["PumpingRate"].values, series.values, thresholds[cid])
+    
+    # --- determine sustainable yield (min of all valid crossings) ---
+    qs_candidates = {k: v for k, v in crossings.items() if v is not None}
 
-    qs_candidates = [v for v in crossings.values() if v is not None]
-    qs_value = min(qs_candidates) if qs_candidates else None
+    if qs_candidates:
+        qs_value = min(qs_candidates.values())
+        most_prohibitive_constraints = [
+            k for k, v in qs_candidates.items() if v == qs_value
+        ]
+    else:
+        qs_value = None
+        most_prohibitive_constraints = []
 
     # --- plotting ---
     fig, ax = plt.subplots(figsize=(14, 12))
@@ -1433,7 +1442,7 @@ def estimate_sustainable_yield(
     plt.close()
     df.to_csv(os.path.join(output_folder, csv_filename), index=False)
 
-    return qs_value, df
+    return qs_value, df, most_prohibitive_constraints
 
 def update_well_ts_file(base_ts_path, setup_file, q_column, output_path):
     """

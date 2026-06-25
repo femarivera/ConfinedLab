@@ -6,12 +6,9 @@ import os
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-
-# Import local modules
-# Set path to parent dir containing mlibs modules (absolute path)
-mlibs_path = "/srv/common/deesac/ConfinedLab"
-sys.path.append(mlibs_path)
 from mlibs import modpump6, modgeom6 # type: ignore
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # --------------------------------------------------------------------------------------- #
 # ------------------------------- RUN CONTROL ------------------------------------------ #
@@ -22,7 +19,12 @@ EFFICIENCY = True  # Set to True to run the efficiency-based iteration process
 
 ESTIMATE = True  # Set to True to run the sustainable yield estimation
 
-planning_horizons = [ 5, 10, 25, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 30000, 40000, 50000] # In years
+planning_horizons = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 
+                     20, 25, 30, 35, 40, 45, 50, 60,  70, 80, 90, 100, 
+                     125, 150, 175, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 
+                    #  2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 15000, 
+                    #  20000, 25000, 30000, 35000, 40000, 45000, 50000
+                     ] # In years
 pump_start = 3600000 # In model totim units (days)
 
 # --------------------------------------------------------------------------------------- #
@@ -49,6 +51,7 @@ model_name = 'DEESACt'
 budget_file_name = f"{model_name}_budget.csv"
 zonebud_file_name = "zonebud.csv"
 head_file_name = "head_obs_t.csv"
+cbb_summary_file_name = "cbb_summary.csv"
 
 # --------------------------------------------------------------------------------------- #
 # ------------------------------- INPUTS ESTIMATION ------------------------------------- #
@@ -60,8 +63,8 @@ input_folder = summary_dir # Takes as input the path to the summary of the yield
 # Define start time of pumping, planning horizons and constraints
 constraints = [
     { 
-    'label': "Spring discharge all zones", 
-    'id': "drn_all", 
+    'label': "Surface water discharge Zone 1", 
+    'id': "drn_z1", 
     'constrain': "DRN(DRN1)",
     'flow': "NET", 
     'zone': "ALL", 
@@ -72,13 +75,56 @@ constraints = [
     'color' : "Purple" 
     },
 
-    # { 'label': "River discharge zone 1", 'id': "riv_1", 'constrain': "RIV",
-    #  'flow': "NET", 'zone': 1, 'threshold_type': "RELATIVE", 'threshold': 0.9,
-    #  'reference': None, 'neighbour_zones': None, 'color' : "Blue" },
+    { 
+    'label': "Surface water discharge Zone 2", 
+    'id': "drn_z2", 
+    'constrain': "DRN(DRN2)",
+    'flow': "NET", 
+    'zone': "ALL", 
+    'threshold_type': "RELATIVE", 
+    'threshold': 0.9,
+    'reference': None, 
+    'neighbour_zones': None, 
+    'color' : "Blue" 
+    },
+    { 
+    'label': "Surface water discharge Zone 3", 
+    'id': "drn_z3", 
+    'constrain': "DRN(DRN3)",
+    'flow': "NET", 
+    'zone': "ALL", 
+    'threshold_type': "RELATIVE", 
+    'threshold': 0.9,
+    'reference': None, 
+    'neighbour_zones': None, 
+    'color' : "Purple" 
+    },
 
-    # { 'label': "Leakage zone 3", 'id': "leak_3", 'constrain': "LEAKAGE",
-    # 'flow': "NET", 'zone': 3, 'threshold_type': "ABSOLUTE", 'threshold': -40,
-    # 'reference': None, 'neighbour_zones': [2,4], 'color' : "orange" },
+    { 
+    'label': "Surface water discharge Zone 4", 
+    'id': "drn_z4", 
+    'constrain': "DRN(DRN4)",
+    'flow': "NET", 
+    'zone': "ALL", 
+    'threshold_type': "RELATIVE", 
+    'threshold': 0.9,
+    'reference': None, 
+    'neighbour_zones': None, 
+    'color' : "Blue" 
+    },
+
+    { 
+    'label': "Surface water discharge Zone 5", 
+    'id': "drn_z5", 
+    'constrain': "DRN(DRN5)",
+    'flow': "NET", 
+    'zone': "ALL", 
+    'threshold_type': "RELATIVE", 
+    'threshold': 0.9,
+    'reference': None, 
+    'neighbour_zones': None, 
+    'color' : "Blue" 
+    },
 
     { 
     'label': "Lateral outflow zone 3",
@@ -117,26 +163,27 @@ if ITERATE:
         print("Running efficiency-based pumping rate iteration...")
         modpump6.iterate_pumping_rate_transient_eff(setup_file, model_file, model_ws_name, model_name, 
                                             iterations_output_dir, summary_dir, 
-                                            budget_file_name, zonebud_file_name, head_file_name)
+                                            budget_file_name, zonebud_file_name, head_file_name, cbb_summary_file_name)
     else:
         print("Running full-based pumping rate iteration...")
-        modpump6.iterate_pumping_rate_transient(setup_file, model_file, mlibs_path, 
+        modpump6.iterate_pumping_rate_transient(setup_file, model_file, 
                                                 iterations_output_dir, summary_dir, 
                                                 model_ws_name, budget_file_name, 
-                                                zonebud_file_name, head_file_name)
-    
+                                                zonebud_file_name, head_file_name, cbb_summary_file_name)
 
 # --------------------------------------------------------------------------------------- #
 # -------------------------- SUSTAINABLE YIELD ESTIMATION ------------------------------- #
 # --------------------------------------------------------------------------------------- #
 
 if ESTIMATE:
-    # Convert years to totim units (days) for the sustainable yield function
+# Convert years to totim units (days) for the sustainable yield function
     planning_horizons_totim = [val * 360 for val in planning_horizons]
     # Loop over planning horizons and estimate sustainable yield 
     qs_values = []
+    defining_list = []
+
     for tp in planning_horizons_totim:
-        qs, df = modpump6.estimate_sustainable_yield(
+        qs, df, defining_constraints = modpump6.estimate_sustainable_yield(
             input_folder,
             output_folder,
             plot_folder,
@@ -145,61 +192,74 @@ if ESTIMATE:
             planning_horizon=tp,
             constraints=constraints,
             model_name=model_name,
-            csv_filename= f"Q_vs_flow_{int(tp/360)}.csv",
+            csv_filename=f"Q_vs_flow_{int(tp/360)}.csv",
             plot_filename=f"Q_vs_flow_{int(tp/360)}.png",
             plot_units="years",
             conversion_factor=360)
+
         qs_values.append(qs)
-        print(f"Sustainable yield: {qs}")
-        print(df.head())
+        defining_constraint = defining_constraints[0] if defining_constraints else None
+        defining_list.append(defining_constraint)
+        print(f"Sustainable yield: {qs} | Constraint: {defining_constraints}")
 
     # Save summary of sustainable yield values vs planning horizon
-    qs_df = pd.DataFrame({"Planning_Horizon": planning_horizons, "Sustainable_Yield": qs_values})
+    qs_df = pd.DataFrame({
+        "Planning_Horizon": planning_horizons,
+        "Sustainable_Yield": qs_values,
+        "Defining_Constraint": [d["id"] if d else None for d in defining_list],
+        "Constraint_Type": [d["type"] if d else None for d in defining_list],
+        "Threshold_Value": [d["value"] if d else None for d in defining_list],
+        "Reference": [d["reference"] if d else None for d in defining_list],
+        "Impact": [d["impact"] if d else None for d in defining_list],
+    })
     qs_df.to_csv(os.path.join(output_folder, "sustainable_yield_summary.csv"), index=False)
 
     # Plot sustainable yield vs planning horizon
-    def plot_df(
-        qs,
-        title="Sustainable Yield Plot",
-        xlabel="Pumping Rate [m³/day]",
-        ylabel="Flow Rate [m³/day]",
-        figsize=(8,6),
-        save_path=None):
+    def plot_df(qs_df, defining_list,
+                        title="Sustainable Yield Plot",
+                        xlabel="Planning Horizon [years]",
+                        ylabel="Sustainable yield [m³/day]",
+                        figsize=(8,6),
+                        save_path=None):
+        
+        # Extract constraint id strings for coloring
+        constraint_labels = [d["id"] if d else "None" for d in defining_list]
+        unique_constraints = sorted(set(constraint_labels))
+        colors = plt.cm.tab10(np.linspace(0, 1, len(unique_constraints)))
 
-        """
-        Plot a 2-column DataFrame: first column = x, second column = y.
-        """
-        # Extract columns
-        x = qs.iloc[:, 0]
-        y = qs.iloc[:, 1]
+        color_map = dict(zip(unique_constraints, colors))
+        point_colors = [color_map[c] for c in constraint_labels]
 
-        # Create figure
+        x = qs_df.iloc[:, 0]
+        y = qs_df.iloc[:, 1]
+
         fig, ax = plt.subplots(figsize=figsize)
 
-        # Plot with scientific styling
-        ax.plot(x, y, marker='o', linestyle='-', color='navy')
+        ax.scatter(x, y, c=point_colors, s=60, edgecolor="black")
 
-        # Titles and labels
+        # optional: connect trend line
+        ax.plot(x, y, linestyle='-', alpha=0.4, color='black')
+
+        # Legend with unique constraints
+        handles = [plt.Line2D([0], [0], marker='o', color='w', markerfacecolor=color_map[c], markersize=10, label=c) for c in unique_constraints]
+        ax.legend(handles=handles, title="Defining constraint", loc="best")
+
         ax.set_title(title, fontsize=14, fontweight="bold")
-        ax.set_xlabel(xlabel, fontsize=12)
-        ax.set_ylabel(ylabel, fontsize=12)
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
 
-        # Grid and legend
-        ax.grid(True, which="both", linestyle="--", linewidth=0.7, alpha=0.7)
+        ax.grid(True, linestyle="--", alpha=0.6)
 
-        # Scientific notation for axes if values are large/small
-        #ax.ticklabel_format(style="sci", axis="both", scilimits=(0,0))
-
-        # Tight layout
         plt.tight_layout()
 
-        # Save or show
         if save_path:
             plt.savefig(save_path, dpi=300, bbox_inches="tight")
         else:
             plt.show()
+
     plot_df(
         qs_df,
+        defining_list,
         title="Sustainable yield vs Planning horizon",
         xlabel="Planning Horizon [years]",
         ylabel="Sustainable yield [m³/day]",

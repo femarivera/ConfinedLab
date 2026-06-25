@@ -350,7 +350,7 @@ if STEADY:
         head_filerecord = f"output/{model_name}.hds",
         budget_filerecord = f"output/{model_name}.cbb",
         budgetcsv_filerecord = f"output/{model_name}_budget.csv",
-        saverecord = [("HEAD", "ALL"), ("BUDGET", "LAST")],
+        saverecord = [("HEAD", "ALL"), ("BUDGET", "ALL")],
         printrecord = [("HEAD", "LAST"),("BUDGET", "LAST")], 
         filename = f"{model_name}.oc")
 
@@ -1222,7 +1222,16 @@ if response_times:
     csv_path = os.path.join(output_folder, "tr_total_summary.csv")
     pd.DataFrame(summary_data).to_csv(csv_path, index=False)
 
-    #--------------------------------------- TRANSIENT ANIMATION ---------------------------------------------#
+cb.close()
+del cb
+del zonebud
+modpump6.analyze_cbb_boundaries(
+    cbb_path   = f"{output_folder}/{model_name_tr}.cbb",
+    csv_out    = f"{output_folder}/cbb_summary.csv",
+    delete_cbb = True,
+    run_label  = None,)
+    
+#--------------------------------------- TRANSIENT ANIMATION ---------------------------------------------#
 
 if animate:
     

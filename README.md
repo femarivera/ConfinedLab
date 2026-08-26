@@ -67,9 +67,9 @@ A framework for building, running, and post-processing steady-state and transien
 
 ## Structure
 
-In each of the `Runs/Response time experiments` subfolders you will find:
+Inside each of the `runs/Response time experiments` subfolders you will find:
 
-| File | Function |
+| File | Description |
 |---|---|
 | `Model.py` | Runs a MODFLOW 6 simulation |
 | `Run_parallel.py` | Launches parallel runs for different parameter sets |

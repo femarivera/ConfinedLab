@@ -350,7 +350,7 @@ if STEADY:
         head_filerecord = f"output/{model_name}.hds",
         budget_filerecord = f"output/{model_name}.cbb",
         budgetcsv_filerecord = f"output/{model_name}_budget.csv",
-        saverecord = [("HEAD", "ALL"), ("BUDGET", "LAST")],
+        saverecord = [("HEAD", "ALL"), ("BUDGET", "ALL")],
         printrecord = [("HEAD", "LAST"),("BUDGET", "LAST")], 
         filename = f"{model_name}.oc")
 

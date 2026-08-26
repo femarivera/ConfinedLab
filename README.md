@@ -61,6 +61,86 @@ This project is licensed under the BSD 3-Clause License — see the [LICENSE](LI
 
 ---
 
+# Response Times Estimation Framework
+
+A framework for building, running, and post-processing steady-state and transient MODFLOW 6 groundwater models to estimate hydraulic response times, capture rates, and sustainable yields.
+
+## Setup
+
+From the `templates` folder, copy the following files into a working directory:
+
+| Template file | Rename to |
+|---|---|
+| `2D model template simplified script.py` | `Model.py` |
+| `Run_parallel.py` | *(keep as is)* |
+| `setup.xlsx` | *(keep as is)* |
+
+`Model.py` is tied to `setup.xlsx`, which defines all inputs needed to build and run the steady-state and transient MODFLOW 6 model.
+
+## `setup.xlsx` sheet reference
+
+| Sheet | Description |
+|---|---|
+| `Grid` | Definition of the structured grid parameters. |
+| `Geometry` | Parameters for constructing the synthetic model geometry, using the `modgeom6` module functions. |
+| `Tdis` | Time discretization. |
+| `Parameters` | Model parameters per zone. |
+| `Transient_recharge` | Time series of recharge rates per zone. |
+| `Observations` | Cell IDs of the observation points. |
+| `Well_st` | Well locations and pumping rates for the steady-state simulation. |
+| `Wells` | Well locations and pumping rate time series for the transient simulation. |
+| `Response_times` | Parameters for response time estimation via the `modtransient6` function. **Note:** the steady-state recharge and pumping rates here must match those defined for the last stress period of the transient series. |
+| `Q_values_st` | Pumping rates per well for sequential steady-state runs, used to investigate capture rates and sustainable yields via the `modpump6` module functions. |
+| `Q_values_tr` | Pumping rates per well for sequential transient runs, used to investigate capture rates and sustainable yields via the `modpump6` module functions. |
+| `Parameter_analysis` | Parameter sets for sensitivity analysis, used to launch parallel runs. |
+
+## Usage
+
+### 1. Run a single model
+
+```bash
+python Model.py
+```
+
+This builds and runs the model for the current parameter set and estimates response times.
+
+### 2. Run a parameter senstivity analysis in parallel
+
+In `Run_parallel.py`, set:
+
+```python
+SCRIPT_TO_RUN = "Model.py"
+PREFIX = "kv_"
+```
+
+`PREFIX` must match the naming pattern used in `setup.xlsx` → `Parameter_analysis`.
+
+Then run:
+
+```bash
+python Run_parallel.py
+```
+
+This launches parallel runs across all parameter sets defined in `Parameter_analysis`. A folder is created per parameter set, containing the simulation results and the response time estimation for that run.
+
+### 3. Post-process and visualize results
+
+In `Postprocessing response time.py`, set:
+
+```python
+path = "<working directory>"
+subfolder_keyword = "kv_"  # must match PREFIX used above
+```
+
+Then run:
+
+```bash
+python "Postprocessing response time.py"
+```
+
+This generates summary plots and a `tr_analysis.csv` file summarizing the results across all parameter sets.
+
+
 ## Contact
 
 For questions, suggestions, or contributions, please contact:

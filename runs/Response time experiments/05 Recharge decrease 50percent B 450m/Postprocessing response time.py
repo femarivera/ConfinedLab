@@ -25,11 +25,11 @@ from mlibs import modpar6, modplot6, modtransient6, modpump6, modgeom6, modbound
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # Set folder path containing simulation results
-path = r"D:\DEESAC\Response time\01 Recharge decrease 50percent - Base case"
+path = r"."
 subfolder_keyword = "kv_"
 # Set parameters for analysis
 anis = 1
-bf = 1 #Thickness factor with respect to base case
+bf = 0.5 #Thickness factor with respect to base case
 lf = 1 #Length factor with respect to base case
 thickness_dict= {1:200*bf,
                 2: 150*bf,
@@ -73,7 +73,7 @@ modtransient6.loglog_scatter_df(
     xlabel="Analytical response time [years]",
     ylabel="Simulated response time [years]",
     marker_size=70,
-    min_val=1, max_val=1e8, 
+    min_val=1, max_val=1e6, 
     cmap = "plasma_r", 
     SAVE=True,
     output_path=path + "/tr_scatter_zone5.png")
@@ -89,7 +89,7 @@ modtransient6.loglog_scatter_df(
     xlabel="Analytical response time [years]",
     ylabel="Simulated response time [years]",
     marker_size=70,
-    min_val=1, max_val=1e8, 
+    min_val=1, max_val=1e6, 
     cmap = "plasma_r",
     SAVE=True,
     output_path=path + "/tr_scatter_mixed_zone5.png")
@@ -105,7 +105,7 @@ modtransient6.loglog_scatter_df(
     xlabel="Analytical response time [years]",
     ylabel="Simulated response time [years]",
     marker_size=70,
-    min_val=1, max_val=1e8, 
+    min_val=1, max_val=1e6, 
     cmap = "plasma_r", 
     SAVE=True,
     output_path=path + "/tr_scatter_zone3.png")
@@ -121,7 +121,7 @@ modtransient6.loglog_scatter_df(
     xlabel="Analytical response time [years]",
     ylabel="Simulated response time [years]",
     marker_size=70,
-    min_val=1, max_val=1e8, 
+    min_val=1, max_val=1e6, 
     cmap = "plasma_r",
     SAVE=True,
     output_path=path + "/tr_scatter_mixed_zone3.png")
@@ -139,7 +139,7 @@ modtransient6.loglog_scatter_df(
     ylabel="Simulated response time [years]",
     marker_size=70,
     cmap = "plasma_r",
-    min_val=1, max_val=1e8,
+    min_val=1, max_val=1e6,
     SAVE=True,
     output_path=path + "/tr_scatter_revised_zone5.png")
 
@@ -155,7 +155,7 @@ modtransient6.loglog_scatter_df(
     ylabel="Simulated response time [years]",
     marker_size=70,
     cmap = "plasma_r",
-    min_val=1, max_val=1e8,
+    min_val=1, max_val=1e6,
     SAVE=True,
     output_path=path + "/tr_scatter_revised_zone3.png")
 
@@ -172,6 +172,7 @@ modtransient6.loglog_scatter_df(
     ylabel="Simulated response time [years]",
     marker_size=70,
     cmap = "plasma_r",
+    min_val=1, max_val=1e6,
     SAVE=True,
     output_path=path + "/tr_scatter_basin_zone5.png")
 
@@ -187,6 +188,7 @@ modtransient6.loglog_scatter_df(
     ylabel="Simulated response time [years]",
     marker_size=70,
     cmap = "plasma_r",
+    min_val=1, max_val=1e6,
     SAVE=True,
     output_path=path + "/tr_scatter_basin_zone3.png")
 

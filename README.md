@@ -65,15 +65,16 @@ This project is licensed under the BSD 3-Clause License — see the [LICENSE](LI
 
 A framework for building, running, and post-processing steady-state and transient MODFLOW 6 groundwater models to estimate hydraulic response times, capture rates, and sustainable yields.
 
-## Setup
+## Structure
 
-From the `templates` folder, copy the following files into a working directory:
+In each of the `Runs/Response time experiments` subfolders you will find:
 
-| Template file | Rename to |
+| File | Function |
 |---|---|
-| `2D model template simplified script.py` | `Model.py` |
-| `Run_parallel.py` | *(keep as is)* |
-| `setup.xlsx` | *(keep as is)* |
+| `Model.py` | Runs a MODFLOW 6 simulation |
+| `Run_parallel.py` | Launches parallel runs for different parameter sets |
+| `setup.xlsx` | Contains the variables and parameters of the model |
+| `Postprocessing response time.py` | Postprocessing and visualization of the results |
 
 `Model.py` is tied to `setup.xlsx`, which defines all inputs needed to build and run the steady-state and transient MODFLOW 6 model.
 
@@ -96,6 +97,8 @@ From the `templates` folder, copy the following files into a working directory:
 
 ## Usage
 
+From a subfolder within `Runs/Response time experiments`
+
 ### 1. Run a single model
 
 ```bash
@@ -106,31 +109,13 @@ This builds and runs the model for the current parameter set and estimates respo
 
 ### 2. Run a parameter senstivity analysis in parallel
 
-In `Run_parallel.py`, set:
-
-```python
-SCRIPT_TO_RUN = "Model.py"
-PREFIX = "kv_"
-```
-
-`PREFIX` must match the naming pattern used in `setup.xlsx` → `Parameter_analysis`.
-
-Then run:
-
 ```bash
 python Run_parallel.py
 ```
 
-This launches parallel runs across all parameter sets defined in `Parameter_analysis`. A folder is created per parameter set, containing the simulation results and the response time estimation for that run.
+This launches parallel runs across all parameter sets defined in `setup.xlsx - Parameter_analysis`. A folder is created per parameter set, containing the simulation results and the response time estimation for that run.
 
 ### 3. Post-process and visualize results
-
-In `Postprocessing response time.py`, set:
-
-```python
-path = "<working directory>"
-subfolder_keyword = "kv_"  # must match PREFIX used above
-```
 
 Then run:
 
@@ -139,6 +124,7 @@ python "Postprocessing response time.py"
 ```
 
 This generates summary plots and a `tr_analysis.csv` file summarizing the results across all parameter sets.
+Within each experiment folder, all setup files and scripts have their respective parameters and variables set to reproduce the results presented in the manuscript.
 
 
 ## Contact

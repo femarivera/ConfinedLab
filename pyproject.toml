@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ConfinedLab"
-version = "0.1.0"
+version = "0.1.1"
 description = "Synthetic Modelling framework for confined aquifers within multilayer systems"
 authors = [
   { name = "MARIN RIVERA Carlos Felipe" }
@@ -23,7 +23,7 @@ dependencies = [
     "scikit-learn>=1.6",
     "openpyxl>=3.1",
     "shapely",
-    "mlibs @ git+https://github.com/femarivera/ConfinedLab-mlibs.git@v0.1.0",
+    "mlibs @ git+https://github.com/femarivera/ConfinedLab-mlibs.git@v0.1.1",
 ]
 
 [tool.setuptools.packages.find]

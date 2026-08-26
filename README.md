@@ -90,7 +90,7 @@ Inside each of the `runs/Response time experiments` subfolders you will find:
 | `Observations` | Cell IDs of the observation points. |
 | `Well_st` | Well locations and pumping rates for the steady-state simulation. |
 | `Wells` | Well locations and pumping rate time series for the transient simulation. |
-| `Response_times` | Parameters for response time estimation via the `modtransient6` function. **Note:** the steady-state recharge and pumping rates here must match those defined for the last stress period of the transient series. |
+| `Response_times` | Parameters for response time estimation via the `modtransient6` module functions. **Note:** the steady-state recharge and pumping rates here must match those defined for the last stress period of the transient series. |
 | `Q_values_st` | Pumping rates per well for sequential steady-state runs, used to investigate capture rates and sustainable yields via the `modpump6` module functions. |
 | `Q_values_tr` | Pumping rates per well for sequential transient runs, used to investigate capture rates and sustainable yields via the `modpump6` module functions. |
 | `Parameter_analysis` | Parameter sets for sensitivity analysis, used to launch parallel runs. |

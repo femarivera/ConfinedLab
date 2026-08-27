@@ -85,13 +85,11 @@ model_ws = 'mf'
 model_name = 'DEESAC'
 model_name_tr = 'DEESACt'
 output_folder = f"{model_ws}/output"
-figure_folder = f"{model_ws}/fig"
-gis_folder = "C:/Users/cmarinriver/Projects/ConfinedLab/gis" 
+figure_folder = f"{model_ws}/fig" 
 setup_file = "setup.xlsx" # Excel file containing model setup parameters
 
 os.makedirs(output_folder, exist_ok=True)
 os.makedirs(figure_folder, exist_ok=True)
-os.makedirs(gis_folder, exist_ok=True)
 
 # ------------------------------------------------------------------------------- #
 # --------------------------- STRUCTURED GRID GENERATION ------------------------ #

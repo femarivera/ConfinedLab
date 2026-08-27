@@ -9,9 +9,6 @@ import sys
 import matplotlib.pyplot as plt
 
 # Import local modules
-# Set path to parent dir containing mlibs modules (absolute path)
-mlibs_path = "C:/Users/cmarinriver/Projects/ConfinedLab"
-sys.path.append(mlibs_path)
 from mlibs import modpump6 # type: ignore
 
 # --------------------------------------------------------------------------------------- #
